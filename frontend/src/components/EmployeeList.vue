@@ -10,6 +10,7 @@
             <th>Роль</th>
             <th>Статус</th>
             <th>Последнее событие</th>
+            <th>Действия</th>
           </tr>
         </thead>
         <tbody>
@@ -36,6 +37,15 @@
               </span>
               <span v-else>—</span>
             </td>
+            <td>
+              <button 
+                @click="deleteEmployee(emp.id, emp.name)" 
+                class="btn-delete"
+                :disabled="deleting === emp.id"
+              >
+                {{ deleting === emp.id ? 'Удаление...' : 'Удалить' }}
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -46,12 +56,15 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { config } from '../config.js';
+import { getSocket } from '../socket.js';
 
-const backendBase = 'http://localhost:3000';
+const backendBase = config.backendUrl;
 
 const employees = ref([]);
 const loading = ref(false);
-let intervalId = null;
+const deleting = ref(null);
+let socket = null;
 
 const fetchPresence = async () => {
   loading.value = true;
@@ -71,13 +84,59 @@ const formatTime = (iso) => {
   return d.toLocaleString();
 };
 
+const deleteEmployee = async (id, name) => {
+  if (!confirm(`Точно удалить сотрудника "${name}"? Это также удалит все события этого сотрудника.`)) {
+    return;
+  }
+  
+  deleting.value = id;
+  try {
+    const res = await fetch(`${backendBase}/api/employees/${id}`, {
+      method: 'DELETE'
+    });
+    
+    if (res.ok) {
+      await fetchPresence();
+    } else {
+      const error = await res.json().catch(() => ({ error: 'Unknown error' }));
+      alert(`Ошибка: ${error.error}`);
+    }
+  } catch (e) {
+    console.error(e);
+    alert('Ошибка при удалении сотрудника');
+  } finally {
+    deleting.value = null;
+  }
+};
+
 onMounted(() => {
   fetchPresence();
-  intervalId = setInterval(fetchPresence, 5000);
+  
+  // WebSocket для реал-тайм обновлений
+  socket = getSocket();
+  
+  socket.on('event:created', () => {
+    console.log('[EmployeeList] Event created, refreshing...');
+    fetchPresence();
+  });
+  
+  socket.on('employee:added', () => {
+    console.log('[EmployeeList] Employee added, refreshing...');
+    fetchPresence();
+  });
+  
+  socket.on('employee:deleted', () => {
+    console.log('[EmployeeList] Employee deleted, refreshing...');
+    fetchPresence();
+  });
 });
 
 onBeforeUnmount(() => {
-  if (intervalId) clearInterval(intervalId);
+  if (socket) {
+    socket.off('event:created');
+    socket.off('employee:added');
+    socket.off('employee:deleted');
+  }
 });
 </script>
 
@@ -114,5 +173,25 @@ th, td {
 .status--absent {
   background: #ffe6e6;
   color: #a11616;
+}
+
+.btn-delete {
+  background: #f44336;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.2s;
+}
+
+.btn-delete:hover:not(:disabled) {
+  background: #d32f2f;
+}
+
+.btn-delete:disabled {
+  background: #ccc;
+  cursor: not-allowed;
 }
 </style>

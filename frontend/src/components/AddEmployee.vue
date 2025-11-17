@@ -22,8 +22,9 @@
 
 <script setup>
 import { ref } from 'vue';
+import { config } from '../config.js';
 
-const backendBase = 'http://localhost:3000';
+const backendBase = config.backendUrl;
 const emit = defineEmits(['added']);
 
 const name = ref('');
