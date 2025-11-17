@@ -1,61 +1,120 @@
 <template>
-  <div>
-    <div v-if="loading">Загрузка...</div>
-    <div v-else>
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Фото</th>
-            <th>Имя</th>
-            <th>Роль</th>
-            <th>Статус</th>
-            <th>Последнее событие</th>
-            <th>Действия</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="emp in employees" :key="emp.id">
-            <td>
-              <img
-                v-if="emp.photoUrl"
-                :src="backendBase + emp.photoUrl"
-                alt="photo"
-                class="avatar"
+  <div class="employee-list">
+    <el-skeleton :loading="loading" :rows="5" animated>
+      <div v-if="employees.length > 0">
+        <el-table
+          :data="employees"
+          style="width: 100%"
+          :default-sort="{ prop: 'present', order: 'descending' }"
+          stripe
+          :header-cell-style="{ background: '#f5f7fa', fontWeight: '600' }"
+        >
+          <el-table-column label="Фото" width="80" align="center">
+            <template #default="{ row }">
+              <el-avatar
+                v-if="row.photoUrl"
+                :src="backendBase + row.photoUrl"
+                :size="56"
+                shape="circle"
+                fit="cover"
               />
-            </td>
-            <td>{{ emp.name }}</td>
-            <td>{{ emp.role || '—' }}</td>
-            <td>
-              <span :class="['status', emp.present ? 'status--present' : 'status--absent']">
-                {{ emp.present ? 'На месте' : 'Отсутствует' }}
-              </span>
-            </td>
-            <td>
-              <span v-if="emp.lastEventType">
-                {{ emp.lastEventType }}<br />
-                <small>{{ formatTime(emp.lastEventTime) }}</small>
-              </span>
-              <span v-else>—</span>
-            </td>
-            <td>
-              <button 
-                @click="deleteEmployee(emp.id, emp.name)" 
-                class="btn-delete"
-                :disabled="deleting === emp.id"
+              <el-avatar v-else :size="56" :icon="UserFilled" />
+            </template>
+          </el-table-column>
+
+          <el-table-column prop="name" label="Имя" min-width="120" sortable>
+            <template #default="{ row }">
+              <div class="name-cell">
+                <span class="employee-name">{{ row.name }}</span>
+              </div>
+            </template>
+          </el-table-column>
+
+          <el-table-column prop="role" label="Роль" min-width="100">
+            <template #default="{ row }">
+              <el-tag v-if="row.role" type="info" size="small" effect="plain">
+                {{ row.role }}
+              </el-tag>
+              <span v-else class="no-role">—</span>
+            </template>
+          </el-table-column>
+
+          <el-table-column prop="present" label="Статус" width="130" sortable>
+            <template #default="{ row }">
+              <el-tag
+                :type="row.present ? 'success' : 'info'"
+                effect="dark"
+                size="default"
               >
-                {{ deleting === emp.id ? 'Удаление...' : 'Удалить' }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="!employees.length">Пока нет сотрудников</div>
-    </div>
+                <el-icon><CircleCheck v-if="row.present" /><CircleClose v-else /></el-icon>
+                <span style="margin-left: 4px">
+                  {{ row.present ? 'На месте' : 'Отсутствует' }}
+                </span>
+              </el-tag>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="Последнее событие" min-width="160">
+            <template #default="{ row }">
+              <div v-if="row.lastEventType" class="event-info">
+                <el-tag
+                  :type="row.lastEventType === 'IN' ? 'success' : 'warning'"
+                  size="small"
+                  effect="plain"
+                >
+                  {{ row.lastEventType === 'IN' ? 'Приход' : 'Уход' }}
+                </el-tag>
+                <div class="event-time">{{ formatTime(row.lastEventTime) }}</div>
+              </div>
+              <span v-else class="no-event">—</span>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="Действия" width="120" align="center" fixed="right">
+            <template #default="{ row }">
+              <el-popconfirm
+                :title="`Удалить сотрудника ${row.name}?`"
+                confirm-button-text="Удалить"
+                cancel-button-text="Отмена"
+                confirm-button-type="danger"
+                width="250"
+                @confirm="deleteEmployee(row.id)"
+              >
+                <template #reference>
+                  <el-button
+                    type="danger"
+                    size="small"
+                    :icon="Delete"
+                    :loading="deleting === row.id"
+                    circle
+                  />
+                </template>
+              </el-popconfirm>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <el-empty v-else description="Пока нет сотрудников" :image-size="120">
+        <template #image>
+          <el-icon :size="80" color="#909399">
+            <User />
+          </el-icon>
+        </template>
+      </el-empty>
+    </el-skeleton>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ElMessage } from 'element-plus';
+import {
+  UserFilled,
+  Delete,
+  CircleCheck,
+  CircleClose,
+  User
+} from '@element-plus/icons-vue';
 import { config } from '../config.js';
 import { getSocket } from '../socket.js';
 
@@ -73,6 +132,7 @@ const fetchPresence = async () => {
     employees.value = await res.json();
   } catch (e) {
     console.error(e);
+    ElMessage.error('Не удалось загрузить список сотрудников');
   } finally {
     loading.value = false;
   }
@@ -81,29 +141,32 @@ const fetchPresence = async () => {
 const formatTime = (iso) => {
   if (!iso) return '';
   const d = new Date(iso);
-  return d.toLocaleString();
+  return d.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 };
 
-const deleteEmployee = async (id, name) => {
-  if (!confirm(`Точно удалить сотрудника "${name}"? Это также удалит все события этого сотрудника.`)) {
-    return;
-  }
-  
+const deleteEmployee = async (id) => {
   deleting.value = id;
   try {
     const res = await fetch(`${backendBase}/api/employees/${id}`, {
       method: 'DELETE'
     });
-    
+
     if (res.ok) {
       await fetchPresence();
+      ElMessage.success('Сотрудник удалён');
     } else {
       const error = await res.json().catch(() => ({ error: 'Unknown error' }));
-      alert(`Ошибка: ${error.error}`);
+      ElMessage.error(`Ошибка: ${error.error}`);
     }
   } catch (e) {
     console.error(e);
-    alert('Ошибка при удалении сотрудника');
+    ElMessage.error('Ошибка при удалении сотрудника');
   } finally {
     deleting.value = null;
   }
@@ -111,20 +174,20 @@ const deleteEmployee = async (id, name) => {
 
 onMounted(() => {
   fetchPresence();
-  
+
   // WebSocket для реал-тайм обновлений
   socket = getSocket();
-  
+
   socket.on('event:created', () => {
     console.log('[EmployeeList] Event created, refreshing...');
     fetchPresence();
   });
-  
+
   socket.on('employee:added', () => {
     console.log('[EmployeeList] Employee added, refreshing...');
     fetchPresence();
   });
-  
+
   socket.on('employee:deleted', () => {
     console.log('[EmployeeList] Employee deleted, refreshing...');
     fetchPresence();
@@ -141,57 +204,64 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.table {
+.employee-list {
   width: 100%;
-  border-collapse: collapse;
+}
+
+.name-cell {
+  display: flex;
+  flex-direction: column;
+}
+
+.employee-name {
+  font-weight: 600;
+  color: #303133;
   font-size: 14px;
 }
 
-th, td {
-  padding: 4px 8px;
-  border-bottom: 1px solid #eee;
+.no-role,
+.no-event {
+  color: #909399;
+  font-size: 14px;
 }
 
-.avatar {
-  width: 48px;
-  height: 48px;
-  object-fit: cover;
-  border-radius: 50%;
+.event-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.status {
-  padding: 2px 6px;
-  border-radius: 4px;
+.event-time {
   font-size: 12px;
+  color: #909399;
 }
 
-.status--present {
-  background: #e0f7e9;
-  color: #136b2b;
+:deep(.el-table) {
+  font-size: 14px;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.status--absent {
-  background: #ffe6e6;
-  color: #a11616;
+:deep(.el-table__row) {
+  transition: all 0.3s;
 }
 
-.btn-delete {
-  background: #f44336;
-  color: white;
-  border: none;
-  padding: 4px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: background 0.2s;
+:deep(.el-table__row:hover) {
+  background-color: #f5f7fa;
 }
 
-.btn-delete:hover:not(:disabled) {
-  background: #d32f2f;
+:deep(.el-button.is-circle) {
+  padding: 8px;
 }
 
-.btn-delete:disabled {
-  background: #ccc;
-  cursor: not-allowed;
+/* Адаптивность таблицы */
+@media (max-width: 768px) {
+  :deep(.el-table) {
+    font-size: 12px;
+  }
+  
+  .employee-name {
+    font-size: 13px;
+  }
 }
 </style>

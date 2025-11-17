@@ -277,34 +277,18 @@ def main():
             recognized_ids.add(emp_id)
             recognized_faces[emp_id] = face_locations[i]
         
-        # Рисуем рамки на кадре для стрима
+        # Рисуем рамки на кадре для стрима (без текста)
         display_frame = frame.copy()
         
-        # Добавляем информацию о распознавании в угол
-        status_text = f"Распознано: {len(recognized_ids)} | Лиц: {len(face_locations)}"
-        cv2.putText(display_frame, status_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        cv2.putText(display_frame, status_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 1)
-        
+        # Рисуем зелёные рамки для распознанных лиц
         for emp_id, (top, right, bottom, left) in recognized_faces.items():
-          # Зеленая рамка для распознанных лиц
           cv2.rectangle(display_frame, (left, top), (right, bottom), (0, 255, 0), 3)
-          
-          # Имя сотрудника
-          try:
-            emp_idx = known_face_ids.index(emp_id)
-            label = f"ID: {emp_id}"
-            cv2.rectangle(display_frame, (left, bottom - 30), (right, bottom), (0, 255, 0), cv2.FILLED)
-            cv2.putText(display_frame, label, (left + 6, bottom - 8), cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
-          except:
-            pass
         
-        # Для нераспознанных лиц - красная рамка
+        # Рисуем красные рамки для нераспознанных лиц
         for i, (top, right, bottom, left) in enumerate(face_locations):
           is_recognized = any(loc == (top, right, bottom, left) for loc in recognized_faces.values())
           if not is_recognized:
             cv2.rectangle(display_frame, (left, top), (right, bottom), (0, 0, 255), 3)
-            cv2.rectangle(display_frame, (left, bottom - 30), (right, bottom), (0, 0, 255), cv2.FILLED)
-            cv2.putText(display_frame, "Unknown", (left + 6, bottom - 8), cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
         
         # Сохраняем кадр для стрима
         with frame_lock:
