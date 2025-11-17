@@ -1,111 +1,188 @@
 <template>
-  <div>
+  <div class="events-table">
     <!-- Фильтры -->
-    <div class="filters">
-      <input 
-        type="text" 
-        v-model="filters.search" 
-        placeholder="Поиск по имени..."
-        @input="debouncedFetch"
-      />
-      <select v-model="filters.type" @change="fetchEvents">
-        <option value="">Все типы</option>
-        <option value="IN">Приход</option>
-        <option value="OUT">Уход</option>
-      </select>
-      <input 
-        type="date" 
-        v-model="filters.dateFrom" 
-        @change="fetchEvents"
-        placeholder="От"
-      />
-      <input 
-        type="date" 
-        v-model="filters.dateTo" 
-        @change="fetchEvents"
-        placeholder="До"
-      />
-      <button @click="resetFilters">Сбросить</button>
-    </div>
+    <el-card shadow="never" class="filters-card">
+      <el-row :gutter="16">
+        <el-col :xs="24" :sm="12" :md="8" :lg="6">
+          <el-input
+            v-model="filters.search"
+            placeholder="Поиск по имени..."
+            :prefix-icon="Search"
+            clearable
+            @input="debouncedFetch"
+          />
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="6">
+          <el-select
+            v-model="filters.type"
+            placeholder="Тип события"
+            clearable
+            style="width: 100%"
+            @change="fetchEvents"
+          >
+            <el-option label="Все типы" value="" />
+            <el-option label="Приход" value="IN">
+              <el-icon color="#67c23a"><Bottom /></el-icon>
+              <span style="margin-left: 8px">Приход</span>
+            </el-option>
+            <el-option label="Уход" value="OUT">
+              <el-icon color="#f56c6c"><Top /></el-icon>
+              <span style="margin-left: 8px">Уход</span>
+            </el-option>
+          </el-select>
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="6">
+          <el-date-picker
+            v-model="filters.dateFrom"
+            type="date"
+            placeholder="От"
+            style="width: 100%"
+            @change="fetchEvents"
+            format="DD.MM.YYYY"
+          />
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="6">
+          <el-date-picker
+            v-model="filters.dateTo"
+            type="date"
+            placeholder="До"
+            style="width: 100%"
+            @change="fetchEvents"
+            format="DD.MM.YYYY"
+          />
+        </el-col>
+      </el-row>
 
-    <!-- Кнопки действий -->
-    <div class="controls">
-      <button @click="fetchEvents" :disabled="loading">
-        {{ loading ? 'Обновляю...' : 'Обновить' }}
-      </button>
-      <button @click="exportData('csv')" :disabled="loading">
-        Экспорт CSV
-      </button>
-      <button @click="exportData('json')" :disabled="loading">
-        Экспорт JSON
-      </button>
-    </div>
+      <el-row :gutter="16" style="margin-top: 16px">
+        <el-col :span="24">
+          <el-space wrap>
+            <el-button
+              :icon="Refresh"
+              @click="fetchEvents"
+              :loading="loading"
+            >
+              Обновить
+            </el-button>
+            <el-button
+              :icon="RefreshLeft"
+              @click="resetFilters"
+            >
+              Сбросить фильтры
+            </el-button>
+            <el-divider direction="vertical" />
+            <el-button
+              type="success"
+              :icon="Download"
+              @click="exportData('csv')"
+              :loading="loading"
+            >
+              Экспорт CSV
+            </el-button>
+            <el-button
+              type="warning"
+              :icon="Download"
+              @click="exportData('json')"
+              :loading="loading"
+            >
+              Экспорт JSON
+            </el-button>
+          </el-space>
+        </el-col>
+      </el-row>
+    </el-card>
 
     <!-- Таблица -->
-    <table class="table" v-if="events.length">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Сотрудник</th>
-          <th>Роль</th>
-          <th>Тип</th>
-          <th>Время</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="ev in events" :key="ev.id">
-          <td>{{ ev.id }}</td>
-          <td>{{ ev.name }}</td>
-          <td>{{ ev.role || '—' }}</td>
-          <td>
-            <span :class="['badge', ev.type === 'IN' ? 'badge-in' : 'badge-out']">
-              {{ ev.type }}
-            </span>
-          </td>
-          <td>{{ formatTime(ev.timestamp) }}</td>
-        </tr>
-      </tbody>
-    </table>
-    <div v-else class="no-data">
-      {{ loading ? 'Загрузка...' : 'Событий не найдено' }}
-    </div>
+    <el-table
+      v-loading="loading"
+      :data="events"
+      style="width: 100%; margin-top: 20px"
+      stripe
+      :header-cell-style="{ background: '#f5f7fa', fontWeight: '600' }"
+    >
+      <el-table-column prop="id" label="ID" width="80" align="center" />
+      
+      <el-table-column prop="name" label="Сотрудник" min-width="150">
+        <template #default="{ row }">
+          <div class="employee-cell">
+            <el-icon><User /></el-icon>
+            <span class="employee-name">{{ row.name }}</span>
+          </div>
+        </template>
+      </el-table-column>
+
+      <el-table-column prop="role" label="Роль" min-width="120">
+        <template #default="{ row }">
+          <el-tag v-if="row.role" type="info" size="small" effect="plain">
+            {{ row.role }}
+          </el-tag>
+          <span v-else class="no-data">—</span>
+        </template>
+      </el-table-column>
+
+      <el-table-column prop="type" label="Тип" width="120" align="center">
+        <template #default="{ row }">
+          <el-tag
+            :type="row.type === 'IN' ? 'success' : 'warning'"
+            effect="dark"
+            size="default"
+          >
+            <el-icon>
+              <Bottom v-if="row.type === 'IN'" />
+              <Top v-else />
+            </el-icon>
+            <span style="margin-left: 4px">{{ row.type }}</span>
+          </el-tag>
+        </template>
+      </el-table-column>
+
+      <el-table-column prop="timestamp" label="Время" min-width="180" sortable>
+        <template #default="{ row }">
+          <div class="time-cell">
+            <el-icon><Clock /></el-icon>
+            <span>{{ formatTime(row.timestamp) }}</span>
+          </div>
+        </template>
+      </el-table-column>
+
+      <template #empty>
+        <el-empty description="Событий не найдено" :image-size="100">
+          <template #image>
+            <el-icon :size="60" color="#909399">
+              <Document />
+            </el-icon>
+          </template>
+        </el-empty>
+      </template>
+    </el-table>
 
     <!-- Пагинация -->
-    <div class="pagination" v-if="pagination && pagination.totalPages > 1">
-      <button 
-        @click="changePage(1)" 
-        :disabled="pagination.page === 1"
-      >
-        ««
-      </button>
-      <button 
-        @click="changePage(pagination.page - 1)" 
-        :disabled="!pagination.hasPrev"
-      >
-        «
-      </button>
-      <span class="page-info">
-        Страница {{ pagination.page }} из {{ pagination.totalPages }}
-        ({{ pagination.total }} событий)
-      </span>
-      <button 
-        @click="changePage(pagination.page + 1)" 
-        :disabled="!pagination.hasNext"
-      >
-        »
-      </button>
-      <button 
-        @click="changePage(pagination.totalPages)" 
-        :disabled="pagination.page === pagination.totalPages"
-      >
-        »»
-      </button>
+    <div v-if="pagination && pagination.totalPages > 1" class="pagination-container">
+      <el-pagination
+        v-model:current-page="currentPage"
+        :page-size="50"
+        :total="pagination.total"
+        layout="total, prev, pager, next, jumper"
+        background
+        @current-change="handlePageChange"
+      />
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ElMessage } from 'element-plus';
+import {
+  Search,
+  Refresh,
+  RefreshLeft,
+  Download,
+  User,
+  Clock,
+  Bottom,
+  Top,
+  Document
+} from '@element-plus/icons-vue';
 import { config } from '../config.js';
 import { getSocket } from '../socket.js';
 
@@ -131,19 +208,26 @@ const fetchEvents = async () => {
       page: currentPage.value,
       limit: 50
     });
-    
+
     if (filters.value.search) params.append('search', filters.value.search);
     if (filters.value.type) params.append('type', filters.value.type);
-    if (filters.value.dateFrom) params.append('dateFrom', filters.value.dateFrom);
-    if (filters.value.dateTo) params.append('dateTo', filters.value.dateTo);
-    
+    if (filters.value.dateFrom) {
+      const date = new Date(filters.value.dateFrom);
+      params.append('dateFrom', date.toISOString().split('T')[0]);
+    }
+    if (filters.value.dateTo) {
+      const date = new Date(filters.value.dateTo);
+      params.append('dateTo', date.toISOString().split('T')[0]);
+    }
+
     const res = await fetch(`${backendBase}/api/events?${params}`);
     const data = await res.json();
-    
-    events.value = data.events || data; // Поддержка старого формата
+
+    events.value = data.events || data;
     pagination.value = data.pagination;
   } catch (e) {
     console.error(e);
+    ElMessage.error('Не удалось загрузить события');
   } finally {
     loading.value = false;
   }
@@ -157,7 +241,7 @@ const debouncedFetch = () => {
   }, 500);
 };
 
-const changePage = (page) => {
+const handlePageChange = (page) => {
   currentPage.value = page;
   fetchEvents();
 };
@@ -176,30 +260,44 @@ const resetFilters = () => {
 const exportData = async (format) => {
   try {
     const params = new URLSearchParams({ format });
-    
-    if (filters.value.dateFrom) params.append('dateFrom', filters.value.dateFrom);
-    if (filters.value.dateTo) params.append('dateTo', filters.value.dateTo);
-    
+
+    if (filters.value.dateFrom) {
+      const date = new Date(filters.value.dateFrom);
+      params.append('dateFrom', date.toISOString().split('T')[0]);
+    }
+    if (filters.value.dateTo) {
+      const date = new Date(filters.value.dateTo);
+      params.append('dateTo', date.toISOString().split('T')[0]);
+    }
+
     const url = `${backendBase}/api/export/events?${params}`;
     window.open(url, '_blank');
+    ElMessage.success(`Экспорт ${format.toUpperCase()} начался`);
   } catch (e) {
     console.error(e);
-    alert('Ошибка экспорта');
+    ElMessage.error('Ошибка экспорта');
   }
 };
 
 const formatTime = (iso) => {
   if (!iso) return '';
   const d = new Date(iso);
-  return d.toLocaleString();
+  return d.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
 };
 
 onMounted(() => {
   fetchEvents();
-  
+
   // WebSocket для реал-тайм обновлений
   socket = getSocket();
-  
+
   socket.on('event:created', (data) => {
     console.log('[EventsTable] New event received:', data);
     if (currentPage.value === 1 && !filters.value.search) {
@@ -217,120 +315,79 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.filters {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
-
-.filters input,
-.filters select {
-  padding: 6px 8px;
-  font-size: 14px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-}
-
-.filters input[type="text"] {
-  flex: 1;
-  min-width: 200px;
-}
-
-.filters button {
-  padding: 6px 12px;
-  background: #666;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.filters button:hover {
-  background: #555;
-}
-
-.controls {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-button {
-  padding: 6px 12px;
-  font-size: 14px;
-  cursor: pointer;
-  border: 1px solid #ddd;
-  background: white;
-  border-radius: 4px;
-}
-
-button:hover:not(:disabled) {
-  background: #f5f5f5;
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.table {
+.events-table {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
 }
 
-th, td {
-  padding: 8px;
-  text-align: left;
-  border-bottom: 1px solid #eee;
-}
-
-th {
-  background: #f5f5f5;
-  font-weight: 600;
-}
-
-.badge {
-  padding: 2px 8px;
+.filters-card {
+  background: #fafafa;
+  border: 1px solid #e4e7ed;
   border-radius: 12px;
-  font-size: 12px;
-  font-weight: 500;
+  margin-bottom: 16px;
 }
 
-.badge-in {
-  background: #e0f7e9;
-  color: #136b2b;
+:deep(.filters-card .el-card__body) {
+  padding: 20px;
 }
 
-.badge-out {
-  background: #ffe6e6;
-  color: #a11616;
+.employee-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.employee-name {
+  font-weight: 600;
+  color: #303133;
+}
+
+.time-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #606266;
 }
 
 .no-data {
-  text-align: center;
-  padding: 20px;
-  color: #666;
+  color: #909399;
 }
 
-.pagination {
+.pagination-container {
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-top: 16px;
-  padding: 12px;
+  margin-top: 24px;
 }
 
-.pagination button {
-  padding: 6px 12px;
-  min-width: 40px;
+:deep(.el-pagination) {
+  font-weight: 500;
 }
 
-.page-info {
-  margin: 0 8px;
-  font-size: 14px;
-  color: #666;
+:deep(.el-table) {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  :deep(.el-col) {
+    margin-bottom: 12px;
+  }
+
+  :deep(.el-space) {
+    width: 100%;
+  }
+
+  :deep(.el-space .el-button) {
+    flex: 1;
+    min-width: auto;
+  }
+  
+  .employee-cell {
+    font-size: 13px;
+  }
+  
+  .time-cell {
+    font-size: 12px;
+  }
 }
 </style>

@@ -1,104 +1,238 @@
 <template>
-  <div>
-    <div class="filters">
-      <label>
-        От:
-        <input type="date" v-model="dateFrom" @change="fetchStatistics" />
-      </label>
-      <label>
-        До:
-        <input type="date" v-model="dateTo" @change="fetchStatistics" />
-      </label>
-      <button @click="fetchStatistics" :disabled="loading">
-        {{ loading ? 'Загрузка...' : 'Обновить' }}
-      </button>
-    </div>
+  <div class="statistics">
+    <!-- Фильтры -->
+    <el-card shadow="never" class="filters-card">
+      <el-row :gutter="16" align="middle">
+        <el-col :xs="24" :sm="8">
+          <el-date-picker
+            v-model="dateFrom"
+            type="date"
+            placeholder="От"
+            style="width: 100%"
+            @change="fetchStatistics"
+            format="DD.MM.YYYY"
+            :prefix-icon="Calendar"
+          />
+        </el-col>
+        <el-col :xs="24" :sm="8">
+          <el-date-picker
+            v-model="dateTo"
+            type="date"
+            placeholder="До"
+            style="width: 100%"
+            @change="fetchStatistics"
+            format="DD.MM.YYYY"
+            :prefix-icon="Calendar"
+          />
+        </el-col>
+        <el-col :xs="24" :sm="8">
+          <el-button
+            type="primary"
+            :icon="Refresh"
+            @click="fetchStatistics"
+            :loading="loading"
+            style="width: 100%"
+          >
+            Обновить
+          </el-button>
+        </el-col>
+      </el-row>
+    </el-card>
 
-    <div v-if="loading" class="loading">Загрузка статистики...</div>
+    <div v-loading="loading" element-loading-text="Загрузка статистики...">
+      <div v-if="stats">
+        <!-- Общая статистика -->
+        <el-row :gutter="20" style="margin-top: 20px">
+          <el-col :xs="24" :sm="8">
+            <el-card shadow="hover" class="stat-card">
+              <el-statistic title="Всего событий" :value="stats.summary.totalEvents">
+                <template #prefix>
+                  <el-icon color="#409eff" :size="24">
+                    <DataLine />
+                  </el-icon>
+                </template>
+              </el-statistic>
+            </el-card>
+          </el-col>
+          <el-col :xs="24" :sm="8">
+            <el-card shadow="hover" class="stat-card">
+              <el-statistic title="Уникальных сотрудников" :value="stats.summary.uniqueEmployees">
+                <template #prefix>
+                  <el-icon color="#67c23a" :size="24">
+                    <User />
+                  </el-icon>
+                </template>
+              </el-statistic>
+            </el-card>
+          </el-col>
+          <el-col :xs="24" :sm="8">
+            <el-card shadow="hover" class="stat-card">
+              <el-statistic title="Среднее событий/день" :value="stats.summary.avgEventsPerDay">
+                <template #prefix>
+                  <el-icon color="#e6a23c" :size="24">
+                    <TrendCharts />
+                  </el-icon>
+                </template>
+              </el-statistic>
+            </el-card>
+          </el-col>
+        </el-row>
 
-    <div v-else-if="stats">
-      <!-- Общая статистика -->
-      <div class="summary-cards">
-        <div class="card">
-          <div class="card-title">Всего событий</div>
-          <div class="card-value">{{ stats.summary.totalEvents }}</div>
-        </div>
-        <div class="card">
-          <div class="card-title">Уникальных сотрудников</div>
-          <div class="card-value">{{ stats.summary.uniqueEmployees }}</div>
-        </div>
-        <div class="card">
-          <div class="card-title">Среднее событий/день</div>
-          <div class="card-value">{{ stats.summary.avgEventsPerDay }}</div>
-        </div>
-      </div>
-
-      <!-- График событий по дням -->
-      <div class="section">
-        <h3>События по дням</h3>
-        <div class="chart-container">
-          <div v-for="day in stats.eventsByDay.slice(0, 14)" :key="day.date" class="chart-bar">
-            <div class="bar-container">
-              <div 
-                class="bar bar-in" 
-                :style="{ height: (day.ins / maxEvents * 100) + '%' }"
-                :title="`IN: ${day.ins}`"
-              ></div>
-              <div 
-                class="bar bar-out" 
-                :style="{ height: (day.outs / maxEvents * 100) + '%' }"
-                :title="`OUT: ${day.outs}`"
-              ></div>
+        <!-- График событий по дням -->
+        <el-card shadow="hover" style="margin-top: 20px">
+          <template #header>
+            <div class="card-header">
+              <span class="card-title">
+                <el-icon><Histogram /></el-icon>
+                События по дням
+              </span>
             </div>
-            <div class="bar-label">{{ formatDate(day.date) }}</div>
+          </template>
+          
+          <div class="chart-container">
+            <div
+              v-for="day in stats.eventsByDay.slice(0, 14)"
+              :key="day.date"
+              class="chart-bar"
+            >
+              <el-tooltip
+                :content="`${formatDate(day.date)}: Приход ${day.ins}, Уход ${day.outs}`"
+                placement="top"
+              >
+                <div class="bar-container">
+                  <div
+                    class="bar bar-in"
+                    :style="{ height: (day.ins / maxEvents * 100) + '%' }"
+                  ></div>
+                  <div
+                    class="bar bar-out"
+                    :style="{ height: (day.outs / maxEvents * 100) + '%' }"
+                  ></div>
+                </div>
+              </el-tooltip>
+              <div class="bar-label">{{ formatDate(day.date) }}</div>
+            </div>
           </div>
-        </div>
-        <div class="legend">
-          <span class="legend-item"><span class="legend-color legend-in"></span> Приход</span>
-          <span class="legend-item"><span class="legend-color legend-out"></span> Уход</span>
-        </div>
-      </div>
+          
+          <div class="legend">
+            <el-tag type="success" effect="plain" size="small">
+              <el-icon><Bottom /></el-icon>
+              <span style="margin-left: 4px">Приход</span>
+            </el-tag>
+            <el-tag type="warning" effect="plain" size="small">
+              <el-icon><Top /></el-icon>
+              <span style="margin-left: 4px">Уход</span>
+            </el-tag>
+          </div>
+        </el-card>
 
-      <!-- Топ сотрудников -->
-      <div class="section">
-        <h3>Топ 10 сотрудников по активности</h3>
-        <table class="table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Имя</th>
-              <th>Событий</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(emp, idx) in stats.topEmployees" :key="emp.id">
-              <td>{{ idx + 1 }}</td>
-              <td>{{ emp.name }}</td>
-              <td>{{ emp.eventCount }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+        <!-- Топ сотрудников -->
+        <el-card shadow="hover" style="margin-top: 20px">
+          <template #header>
+            <div class="card-header">
+              <span class="card-title">
+                <el-icon><Trophy /></el-icon>
+                Топ 10 сотрудников по активности
+              </span>
+            </div>
+          </template>
+          
+          <el-table
+            :data="stats.topEmployees"
+            stripe
+            :header-cell-style="{ background: '#f5f7fa', fontWeight: '600' }"
+          >
+            <el-table-column label="Место" width="80" align="center">
+              <template #default="{ $index }">
+                <el-tag
+                  v-if="$index === 0"
+                  type="warning"
+                  effect="dark"
+                  size="large"
+                >
+                  🥇
+                </el-tag>
+                <el-tag
+                  v-else-if="$index === 1"
+                  type="info"
+                  effect="dark"
+                  size="large"
+                >
+                  🥈
+                </el-tag>
+                <el-tag
+                  v-else-if="$index === 2"
+                  type="danger"
+                  effect="dark"
+                  size="large"
+                >
+                  🥉
+                </el-tag>
+                <span v-else class="rank">{{ $index + 1 }}</span>
+              </template>
+            </el-table-column>
+            
+            <el-table-column prop="name" label="Имя" min-width="150">
+              <template #default="{ row }">
+                <div class="employee-cell">
+                  <el-icon><User /></el-icon>
+                  <span class="employee-name">{{ row.name }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            
+            <el-table-column prop="eventCount" label="Событий" width="120" align="center" sortable>
+              <template #default="{ row }">
+                <el-tag type="primary" effect="plain">
+                  {{ row.eventCount }}
+                </el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
 
-      <!-- Среднее время работы -->
-      <div class="section">
-        <h3>Среднее время на работе</h3>
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Имя</th>
-              <th>Дней на работе</th>
-              <th>Средние часы/день</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="emp in stats.workHours" :key="emp.id">
-              <td>{{ emp.name }}</td>
-              <td>{{ emp.totalDays }}</td>
-              <td>{{ emp.avgHoursPerDay }} ч</td>
-            </tr>
-          </tbody>
-        </table>
+        <!-- Среднее время работы -->
+        <el-card shadow="hover" style="margin-top: 20px">
+          <template #header>
+            <div class="card-header">
+              <span class="card-title">
+                <el-icon><Clock /></el-icon>
+                Среднее время на работе
+              </span>
+            </div>
+          </template>
+          
+          <el-table
+            :data="stats.workHours"
+            stripe
+            :header-cell-style="{ background: '#f5f7fa', fontWeight: '600' }"
+          >
+            <el-table-column prop="name" label="Имя" min-width="150">
+              <template #default="{ row }">
+                <div class="employee-cell">
+                  <el-icon><User /></el-icon>
+                  <span class="employee-name">{{ row.name }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            
+            <el-table-column prop="totalDays" label="Дней на работе" width="150" align="center" sortable>
+              <template #default="{ row }">
+                <el-tag type="success" effect="plain">
+                  {{ row.totalDays }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            
+            <el-table-column prop="avgHoursPerDay" label="Средние часы/день" width="180" align="center" sortable>
+              <template #default="{ row }">
+                <el-tag type="warning" effect="plain">
+                  {{ row.avgHoursPerDay }} ч
+                </el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
       </div>
     </div>
   </div>
@@ -106,6 +240,19 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { ElMessage } from 'element-plus';
+import {
+  Calendar,
+  Refresh,
+  DataLine,
+  User,
+  TrendCharts,
+  Histogram,
+  Trophy,
+  Clock,
+  Bottom,
+  Top
+} from '@element-plus/icons-vue';
 import { config } from '../config.js';
 
 const backendBase = config.backendUrl;
@@ -118,11 +265,11 @@ const dateTo = ref(getDefaultDateTo());
 function getDefaultDateFrom() {
   const date = new Date();
   date.setDate(date.getDate() - 30);
-  return date.toISOString().split('T')[0];
+  return date;
 }
 
 function getDefaultDateTo() {
-  return new Date().toISOString().split('T')[0];
+  return new Date();
 }
 
 const maxEvents = computed(() => {
@@ -134,13 +281,14 @@ const fetchStatistics = async () => {
   loading.value = true;
   try {
     const params = new URLSearchParams({
-      dateFrom: dateFrom.value,
-      dateTo: dateTo.value
+      dateFrom: dateFrom.value.toISOString().split('T')[0],
+      dateTo: dateTo.value.toISOString().split('T')[0]
     });
     const res = await fetch(`${backendBase}/api/statistics?${params}`);
     stats.value = await res.json();
   } catch (e) {
     console.error(e);
+    ElMessage.error('Не удалось загрузить статистику');
   } finally {
     loading.value = false;
   }
@@ -157,81 +305,70 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.filters {
-  display: flex;
-  gap: 12px;
+.statistics {
+  width: 100%;
+}
+
+.filters-card {
+  background: #fafafa;
+  border: 1px solid #e4e7ed;
+  border-radius: 12px;
   margin-bottom: 16px;
-  align-items: center;
 }
 
-.filters label {
-  display: flex;
-  flex-direction: column;
+.stat-card {
+  background: linear-gradient(135deg, #ffffff 0%, #f5f7fa 100%);
+  border: none;
+  border-radius: 12px;
+}
+
+:deep(.el-statistic__head) {
   font-size: 14px;
+  color: #909399;
+  font-weight: 500;
+  margin-bottom: 12px;
 }
 
-.filters input {
-  margin-top: 4px;
-  padding: 4px 6px;
+:deep(.el-statistic__content) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.filters button {
-  padding: 6px 12px;
-  cursor: pointer;
+:deep(.el-statistic__number) {
+  font-size: 32px;
+  font-weight: 700;
+  color: #303133;
 }
 
-.loading {
-  text-align: center;
-  padding: 20px;
-  color: #666;
-}
-
-.summary-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.card {
-  background: #f5f5f5;
-  padding: 16px;
-  border-radius: 8px;
-  border: 1px solid #ddd;
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .card-title {
-  font-size: 13px;
-  color: #666;
-  margin-bottom: 8px;
-}
-
-.card-value {
-  font-size: 28px;
-  font-weight: bold;
-  color: #333;
-}
-
-.section {
-  margin-bottom: 32px;
-}
-
-.section h3 {
-  margin-bottom: 12px;
-  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
 }
 
 .chart-container {
   display: flex;
   gap: 8px;
-  height: 200px;
+  height: 240px;
   align-items: flex-end;
-  padding: 10px 0;
-  border-bottom: 2px solid #333;
+  padding: 20px 0;
+  border-bottom: 2px solid #303133;
+  overflow-x: auto;
 }
 
 .chart-bar {
   flex: 1;
+  min-width: 40px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -239,83 +376,109 @@ onMounted(() => {
 
 .bar-container {
   width: 100%;
-  height: 180px;
+  height: 200px;
   display: flex;
-  gap: 2px;
+  gap: 3px;
   align-items: flex-end;
   justify-content: center;
 }
 
 .bar {
-  width: 40%;
+  width: 45%;
   min-height: 4px;
-  border-radius: 4px 4px 0 0;
-  transition: all 0.3s;
+  border-radius: 6px 6px 0 0;
+  transition: all 0.3s ease;
+  cursor: pointer;
 }
 
 .bar:hover {
   opacity: 0.8;
+  transform: scaleY(1.05);
 }
 
 .bar-in {
-  background: #4caf50;
+  background: linear-gradient(180deg, #67c23a 0%, #85ce61 100%);
+  box-shadow: 0 -2px 8px rgba(103, 194, 58, 0.3);
 }
 
 .bar-out {
-  background: #f44336;
+  background: linear-gradient(180deg, #e6a23c 0%, #ebb563 100%);
+  box-shadow: 0 -2px 8px rgba(230, 162, 60, 0.3);
 }
 
 .bar-label {
   font-size: 11px;
-  margin-top: 4px;
+  margin-top: 8px;
   text-align: center;
-  color: #666;
+  color: #606266;
+  font-weight: 500;
 }
 
 .legend {
   display: flex;
   gap: 16px;
-  margin-top: 12px;
+  margin-top: 20px;
   justify-content: center;
 }
 
-.legend-item {
+.employee-cell {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 8px;
 }
 
-.legend-color {
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-}
-
-.legend-in {
-  background: #4caf50;
-}
-
-.legend-out {
-  background: #f44336;
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-
-th, td {
-  padding: 8px;
-  text-align: left;
-  border-bottom: 1px solid #eee;
-}
-
-th {
-  background: #f5f5f5;
+.employee-name {
   font-weight: 600;
+  color: #303133;
+}
+
+.rank {
+  font-size: 18px;
+  font-weight: 600;
+  color: #909399;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  :deep(.el-col) {
+    margin-bottom: 12px;
+  }
+
+  .chart-container {
+    height: 200px;
+    overflow-x: auto;
+    padding: 10px 0;
+  }
+
+  .bar-container {
+    height: 160px;
+  }
+
+  .bar-label {
+    font-size: 10px;
+  }
+
+  :deep(.el-statistic__number) {
+    font-size: 24px;
+  }
+
+  .card-title {
+    font-size: 16px;
+  }
+  
+  .employee-cell {
+    font-size: 13px;
+  }
+}
+
+/* Улучшение для средних экранов */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .chart-container {
+    height: 220px;
+  }
+  
+  .bar-container {
+    height: 180px;
+  }
 }
 </style>
-
-

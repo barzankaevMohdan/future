@@ -1,52 +1,113 @@
 <template>
-  <div class="video-container">
+  <div class="video-stream">
     <div class="video-header">
-      <h3>Камера в реальном времени</h3>
-      <div class="status">
-        <span :class="['status-dot', isConnected ? 'status-online' : 'status-offline']"></span>
-        <span>{{ isConnected ? 'Онлайн' : 'Офлайн' }}</span>
+      <div class="header-info">
+        <el-icon :size="20"><VideoCamera /></el-icon>
+        <span class="header-title">Камера в реальном времени</span>
+      </div>
+      <div class="status-indicator">
+        <el-badge
+          :value="isConnected ? 'Онлайн' : 'Офлайн'"
+          :type="isConnected ? 'success' : 'info'"
+        >
+          <el-icon :size="20" :color="isConnected ? '#67c23a' : '#909399'">
+            <VideoCameraFilled />
+          </el-icon>
+        </el-badge>
       </div>
     </div>
 
     <div class="video-wrapper">
-      <img 
-        :src="videoUrl" 
-        alt="Camera feed"
+      <el-image
+        :src="videoUrl"
+        fit="contain"
         class="video-feed"
         :class="{ 'video-hidden': !isConnected }"
         @error="handleError"
         @load="handleLoad"
-      />
-      <div v-if="!isConnected" class="no-video overlay">
-        <div class="no-video-icon">📹</div>
-        <div class="no-video-text">
-          {{ error || 'Подключение к камере...' }}
-        </div>
-        <button @click="reconnect" class="btn-reconnect">
-          Переподключиться
-        </button>
+      >
+        <template #error>
+          <div class="video-error">
+            <el-icon :size="64" color="#909399">
+              <VideoCamera />
+            </el-icon>
+          </div>
+        </template>
+      </el-image>
+
+      <div v-if="!isConnected" class="no-video-overlay">
+        <el-result
+          icon="warning"
+          :title="error || 'Подключение к камере...'"
+        >
+          <template #icon>
+            <el-icon :size="80" color="#e6a23c">
+              <VideoCamera />
+            </el-icon>
+          </template>
+          <template #extra>
+            <el-button
+              type="primary"
+              size="large"
+              :icon="Refresh"
+              @click="reconnect"
+            >
+              Переподключиться
+            </el-button>
+          </template>
+        </el-result>
       </div>
     </div>
 
-    <div class="video-info">
-      <div class="info-item">
-        <span class="info-label">Источник:</span>
-        <span class="info-value">{{ streamBaseUrl }}</span>
-      </div>
-      <div class="info-item">
-        <span class="info-label">FPS:</span>
-        <span class="info-value">~30</span>
-      </div>
-    </div>
+    <el-divider />
 
-    <div class="legend">
-      <div class="legend-item">
-        <span class="legend-box legend-green"></span>
-        <span>Распознанные сотрудники</span>
+    <!-- Информация о видеопотоке -->
+    <el-descriptions :column="2" size="small" border>
+      <el-descriptions-item label="Источник" label-align="right">
+        <el-text type="info" size="small" style="font-family: monospace">
+          {{ streamBaseUrl }}
+        </el-text>
+      </el-descriptions-item>
+      <el-descriptions-item label="FPS" label-align="right">
+        <el-tag type="success" size="small" effect="plain">~30</el-tag>
+      </el-descriptions-item>
+      <el-descriptions-item label="Статус" label-align="right">
+        <el-tag :type="isConnected ? 'success' : 'info'" size="small">
+          {{ isConnected ? 'Активен' : 'Ожидание' }}
+        </el-tag>
+      </el-descriptions-item>
+      <el-descriptions-item label="Качество" label-align="right">
+        <el-tag type="primary" size="small" effect="plain">HD</el-tag>
+      </el-descriptions-item>
+    </el-descriptions>
+
+    <el-divider />
+
+    <!-- Легенда распознавания -->
+    <div class="legend-section">
+      <div class="legend-title">
+        <el-icon><InfoFilled /></el-icon>
+        <span>Обозначения распознавания:</span>
       </div>
-      <div class="legend-item">
-        <span class="legend-box legend-red"></span>
-        <span>Нераспознанные лица</span>
+      <div class="legend-items">
+        <el-card shadow="never" class="legend-card legend-card-green">
+          <div class="legend-item-content">
+            <div class="legend-box legend-box-green"></div>
+            <div class="legend-text">
+              <div class="legend-label">Зелёная рамка</div>
+              <div class="legend-desc">Распознанные сотрудники</div>
+            </div>
+          </div>
+        </el-card>
+        <el-card shadow="never" class="legend-card legend-card-red">
+          <div class="legend-item-content">
+            <div class="legend-box legend-box-red"></div>
+            <div class="legend-text">
+              <div class="legend-label">Красная рамка</div>
+              <div class="legend-desc">Нераспознанные лица</div>
+            </div>
+          </div>
+        </el-card>
       </div>
     </div>
   </div>
@@ -54,17 +115,21 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue';
+import {
+  VideoCamera,
+  VideoCameraFilled,
+  Refresh,
+  InfoFilled
+} from '@element-plus/icons-vue';
 import { config } from '../config.js';
 
 const streamBaseUrl = config.videoStreamUrl;
-const isConnected = ref(true); // Начинаем с true - пусть пытается показать
+const isConnected = ref(true);
 const error = ref('');
 const videoUrl = ref(`${config.videoStreamUrl}/video_feed`);
 let checkInterval = null;
 
 const handleLoad = () => {
-  // MJPEG стрим не триггерит load event нормально
-  // Просто устанавливаем соединение как активное
   setTimeout(() => {
     isConnected.value = true;
     error.value = '';
@@ -80,7 +145,6 @@ const handleError = (e) => {
 
 const reconnect = () => {
   error.value = '';
-  // Обновляем URL с новым timestamp для принудительной перезагрузки
   videoUrl.value = `${streamBaseUrl}/video_feed?t=${Date.now()}`;
   isConnected.value = true;
 };
@@ -91,7 +155,6 @@ const checkConnection = async () => {
     if (res.ok) {
       const data = await res.json();
       if (data.streaming && !isConnected.value) {
-        // Камера работает, устанавливаем соединение
         isConnected.value = true;
         error.value = '';
         console.log('[VideoStream] Camera is streaming');
@@ -109,12 +172,10 @@ const checkConnection = async () => {
 };
 
 onMounted(() => {
-  // Сразу пытаемся подключиться
   setTimeout(() => {
     checkConnection();
   }, 500);
-  
-  // Проверяем доступность стрима каждые 3 секунды
+
   checkInterval = setInterval(checkConnection, 3000);
 });
 
@@ -126,173 +187,205 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.video-container {
-  background: white;
-  border-radius: 8px;
-  padding: 16px;
-  border: 1px solid #ddd;
+.video-stream {
+  width: 100%;
 }
 
 .video-header {
   display: flex;
   justify-content: space-between;
+  padding-right: 40px;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
-.video-header h3 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.status {
+.header-info {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 14px;
+  gap: 12px;
 }
 
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
+.header-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
 }
 
-.status-online {
-  background: #4caf50;
-  box-shadow: 0 0 8px #4caf50;
-  animation: pulse 2s infinite;
-}
-
-.status-offline {
-  background: #ccc;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.6;
-  }
+.status-indicator {
+  display: flex;
+  align-items: center;
 }
 
 .video-wrapper {
   position: relative;
   width: 100%;
-  background: #000;
-  border-radius: 8px;
+  max-width: 100%;
+  background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+  border-radius: 12px;
   overflow: hidden;
   aspect-ratio: 16 / 9;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
 .video-feed {
   width: 100%;
   height: 100%;
-  object-fit: contain;
   display: block;
+  transition: opacity 0.3s ease;
 }
 
 .video-hidden {
   opacity: 0;
 }
 
-.no-video {
+.video-error {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
+  width: 100%;
   height: 100%;
-  color: #999;
+  background: #2d2d2d;
 }
 
-.overlay {
+.no-video-overlay {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   z-index: 10;
 }
 
-.no-video-icon {
-  font-size: 64px;
-  margin-bottom: 16px;
-  opacity: 0.3;
+:deep(.el-result__title) {
+  color: #ffffff;
+  font-size: 18px;
 }
 
-.no-video-text {
-  font-size: 16px;
-  margin-bottom: 16px;
+:deep(.el-divider) {
+  margin: 20px 0;
 }
 
-.btn-reconnect {
-  padding: 8px 16px;
-  background: #2196f3;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.btn-reconnect:hover {
-  background: #1976d2;
-}
-
-.video-info {
-  display: flex;
-  gap: 16px;
-  margin-top: 12px;
-  font-size: 12px;
-  color: #666;
-}
-
-.info-item {
-  display: flex;
-  gap: 4px;
-}
-
-.info-label {
+:deep(.el-descriptions__label) {
   font-weight: 600;
 }
 
-.info-value {
-  font-family: monospace;
+.legend-section {
+  margin-top: 16px;
 }
 
-.legend {
-  display: flex;
-  gap: 16px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #eee;
-}
-
-.legend-item {
+.legend-title {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #606266;
+  margin-bottom: 12px;
+}
+
+.legend-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.legend-card {
+  background: #fafafa;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+}
+
+.legend-card-green {
+  border-left: 4px solid #67c23a;
+}
+
+.legend-card-red {
+  border-left: 4px solid #f56c6c;
+}
+
+:deep(.legend-card .el-card__body) {
+  padding: 12px;
+}
+
+.legend-item-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .legend-box {
-  width: 20px;
-  height: 20px;
-  border-radius: 3px;
-  border: 2px solid;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 3px solid;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.legend-green {
-  border-color: #4caf50;
-  background: rgba(76, 175, 80, 0.2);
+.legend-box-green {
+  border-color: #67c23a;
+  background: rgba(103, 194, 58, 0.1);
 }
 
-.legend-red {
-  border-color: #f44336;
-  background: rgba(244, 67, 54, 0.2);
+.legend-box-red {
+  border-color: #f56c6c;
+  background: rgba(245, 108, 108, 0.1);
+}
+
+.legend-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.legend-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.legend-desc {
+  font-size: 12px;
+  color: #909399;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .header-title {
+    font-size: 14px;
+  }
+
+  .legend-items {
+    grid-template-columns: 1fr;
+  }
+
+  :deep(.el-descriptions) {
+    font-size: 12px;
+  }
+  
+  .legend-box {
+    width: 32px;
+    height: 32px;
+  }
+  
+  .legend-label {
+    font-size: 13px;
+  }
+  
+  .legend-desc {
+    font-size: 11px;
+  }
+}
+
+/* Улучшение для средних экранов */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .legend-items {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 </style>
-
