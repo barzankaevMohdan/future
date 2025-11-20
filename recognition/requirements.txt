@@ -3,3 +3,5 @@ face_recognition
 requests
 flask
 flask-cors
+insightface
+onnxruntime
