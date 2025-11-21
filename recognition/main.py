@@ -14,7 +14,22 @@ import face_recognition
 from insightface.app import FaceAnalysis
 
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:3000')
-CAMERA_INDEX = int(os.getenv('CAMERA_INDEX', '0'))
+
+# Поддержка удалённых камер
+CAMERA_SOURCE = os.getenv('CAMERA_SOURCE', '0')
+CAMERA_INDEX = 0
+
+# Определяем тип источника
+if CAMERA_SOURCE.isdigit():
+  CAMERA_INDEX = int(CAMERA_SOURCE)
+  CAMERA_TYPE = 'local'
+elif CAMERA_SOURCE.startswith('rtsp://') or CAMERA_SOURCE.startswith('http://'):
+  CAMERA_TYPE = 'stream'
+  CAMERA_STREAM_URL = CAMERA_SOURCE
+else:
+  CAMERA_INDEX = 0
+  CAMERA_TYPE = 'local'
+
 FRAME_SKIP = int(os.getenv('FRAME_SKIP', '5'))
 TOLERANCE = float(os.getenv('TOLERANCE', '0.5'))
 IN_THRESHOLD_SECONDS = float(os.getenv('IN_THRESHOLD_SECONDS', '2'))
@@ -190,14 +205,31 @@ def send_event(employee_id, event_type):
 def connect_camera(max_retries=5):
   """Подключение к камере с повторными попытками"""
   for attempt in range(max_retries):
-    print(f'[recognition] Connecting to camera (attempt {attempt + 1}/{max_retries})...')
-    video_capture = cv2.VideoCapture(CAMERA_INDEX)
+    if CAMERA_TYPE == 'local':
+      print(f'[recognition] Connecting to local camera {CAMERA_INDEX} (attempt {attempt + 1}/{max_retries})...')
+      video_capture = cv2.VideoCapture(CAMERA_INDEX)
+    else:
+      print(f'[recognition] Connecting to remote camera (attempt {attempt + 1}/{max_retries})...')
+      print(f'[recognition] URL: {CAMERA_STREAM_URL}')
+      video_capture = cv2.VideoCapture(CAMERA_STREAM_URL, cv2.CAP_FFMPEG)
+      
+      # Настройки для RTSP с минимальной задержкой
+      video_capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     
     if video_capture.isOpened():
       # Проверяем, что можем читать кадры
       ret, frame = video_capture.read()
       if ret:
-        print('[recognition] Camera connected successfully')
+        print(f'[recognition] ✅ Camera connected successfully ({CAMERA_TYPE})')
+        print(f'[recognition] Frame size: {frame.shape[1]}x{frame.shape[0]}')
+        
+        # Для RTSP стримов пропускаем первые кадры из буфера
+        if CAMERA_TYPE == 'stream':
+          print('[recognition] Flushing initial buffer...')
+          for _ in range(5):
+            video_capture.grab()
+          print('[recognition] Low latency mode active')
+        
         return video_capture
       else:
         video_capture.release()
@@ -276,6 +308,10 @@ def main():
   
   try:
     while True:
+      # Для RTSP минимизируем задержку - пропускаем старые кадры
+      if CAMERA_TYPE == 'stream' and frame_count % 2 == 0:
+        video_capture.grab()
+      
       ret, frame = video_capture.read()
       
       if not ret:
