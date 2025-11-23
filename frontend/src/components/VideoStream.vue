@@ -18,7 +18,18 @@
     </div>
 
     <div class="video-wrapper">
+      <canvas
+        ref="roiCanvas"
+        class="roi-canvas"
+        :class="{ 'drawing-mode': drawMode }"
+        @mousedown="startDrawing"
+        @mousemove="draw"
+        @mouseup="endDrawing"
+        @mouseleave="cancelDrawing"
+      ></canvas>
+      
       <el-image
+        ref="videoImage"
         :src="videoUrl"
         fit="contain"
         class="video-feed"
@@ -83,6 +94,49 @@
 
     <el-divider />
 
+    <!-- ROI Controls -->
+    <el-card shadow="never" style="margin-bottom: 16px;">
+      <div class="roi-controls">
+        <div class="roi-title">
+          <el-icon><Location /></el-icon>
+          <span>Зона распознавания</span>
+        </div>
+        <div class="roi-buttons">
+          <el-button
+            :type="drawMode ? 'success' : 'primary'"
+            size="small"
+            @click="toggleDrawMode"
+          >
+            {{ drawMode ? '✏️ Рисование активно' : '📐 Выбрать зону' }}
+          </el-button>
+          <el-button
+            type="danger"
+            size="small"
+            @click="clearROI"
+            v-if="hasROI"
+          >
+            🗑️ Очистить
+          </el-button>
+        </div>
+      </div>
+      <el-alert
+        v-if="drawMode"
+        type="info"
+        :closable="false"
+        style="margin-top: 12px"
+      >
+        💡 Нажмите и тяните мышью на видео чтобы нарисовать зону
+      </el-alert>
+      <div v-if="roi" class="roi-info">
+        <el-tag size="small">X: {{ roi.x.toFixed(1) }}%</el-tag>
+        <el-tag size="small">Y: {{ roi.y.toFixed(1) }}%</el-tag>
+        <el-tag size="small">Ш: {{ roi.width.toFixed(1) }}%</el-tag>
+        <el-tag size="small">В: {{ roi.height.toFixed(1) }}%</el-tag>
+      </div>
+    </el-card>
+
+    <el-divider />
+
     <!-- Легенда распознавания -->
     <div class="legend-section">
       <div class="legend-title">
@@ -119,15 +173,33 @@ import {
   VideoCamera,
   VideoCameraFilled,
   Refresh,
-  InfoFilled
+  InfoFilled,
+  Location
 } from '@element-plus/icons-vue';
 import { config } from '../config.js';
+import { getSocket } from '../socket.js';
 
 const streamBaseUrl = config.videoStreamUrl;
+const backendBase = config.backendUrl;
 const isConnected = ref(true);
 const error = ref('');
 const videoUrl = ref(`${config.videoStreamUrl}/video_feed`);
+
+// ROI state
+const roiCanvas = ref(null);
+const videoImage = ref(null);
+const drawMode = ref(false);
+const roi = ref(null);
+const hasROI = ref(false);
+const drawing = ref(false);
+const startX = ref(0);
+const startY = ref(0);
+const currentX = ref(0);
+const currentY = ref(0);
+
 let checkInterval = null;
+let socket = null;
+let animationFrame = null;
 
 const handleLoad = () => {
   setTimeout(() => {
@@ -171,18 +243,207 @@ const checkConnection = async () => {
   }
 };
 
+// ROI Functions
+const setupCanvas = () => {
+  if (!roiCanvas.value || !videoImage.value?.$el) return;
+  
+  const img = videoImage.value.$el.querySelector('img');
+  if (!img) return;
+  
+  const rect = img.getBoundingClientRect();
+  roiCanvas.value.width = rect.width;
+  roiCanvas.value.height = rect.height;
+  
+  renderROI();
+};
+
+const renderROI = () => {
+  if (!roiCanvas.value) return;
+  
+  const ctx = roiCanvas.value.getContext('2d');
+  const w = roiCanvas.value.width;
+  const h = roiCanvas.value.height;
+  
+  ctx.clearRect(0, 0, w, h);
+  
+  // Рисуем сохранённый ROI
+  if (roi.value && !drawing.value) {
+    const x = (roi.value.x / 100) * w;
+    const y = (roi.value.y / 100) * h;
+    const rw = (roi.value.width / 100) * w;
+    const rh = (roi.value.height / 100) * h;
+    
+    // Затемнение вне ROI
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, 0, w, y);
+    ctx.fillRect(0, y + rh, w, h - (y + rh));
+    ctx.fillRect(0, y, x, rh);
+    ctx.fillRect(x + rw, y, w - (x + rw), rh);
+    
+    // Рамка ROI
+    ctx.strokeStyle = '#0f0';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, rw, rh);
+    
+    ctx.fillStyle = '#0f0';
+    ctx.font = 'bold 16px Arial';
+    ctx.fillText('Recognition Zone', x + 10, y + 25);
+  }
+  
+  // Рисуем временный ROI
+  if (drawing.value) {
+    const x = Math.min(startX.value, currentX.value);
+    const y = Math.min(startY.value, currentY.value);
+    const rw = Math.abs(currentX.value - startX.value);
+    const rh = Math.abs(currentY.value - startY.value);
+    
+    ctx.strokeStyle = '#ff0';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 5]);
+    ctx.strokeRect(x, y, rw, rh);
+    ctx.setLineDash([]);
+  }
+  
+  animationFrame = requestAnimationFrame(renderROI);
+};
+
+const startDrawing = (e) => {
+  if (!drawMode.value) return;
+  
+  const rect = roiCanvas.value.getBoundingClientRect();
+  startX.value = e.clientX - rect.left;
+  startY.value = e.clientY - rect.top;
+  currentX.value = startX.value;
+  currentY.value = startY.value;
+  drawing.value = true;
+};
+
+const draw = (e) => {
+  if (!drawing.value) return;
+  
+  const rect = roiCanvas.value.getBoundingClientRect();
+  currentX.value = e.clientX - rect.left;
+  currentY.value = e.clientY - rect.top;
+};
+
+const endDrawing = async () => {
+  if (!drawing.value) return;
+  
+  drawing.value = false;
+  drawMode.value = false;
+  
+  const w = roiCanvas.value.width;
+  const h = roiCanvas.value.height;
+  
+  const x = Math.min(startX.value, currentX.value);
+  const y = Math.min(startY.value, currentY.value);
+  const rw = Math.abs(currentX.value - startX.value);
+  const rh = Math.abs(currentY.value - startY.value);
+  
+  if (rw < 50 || rh < 50) {
+    alert('Зона слишком маленькая');
+    return;
+  }
+  
+  const newROI = {
+    x: (x / w) * 100,
+    y: (y / h) * 100,
+    width: (rw / w) * 100,
+    height: (rh / h) * 100
+  };
+  
+  await saveROI(newROI);
+};
+
+const cancelDrawing = () => {
+  drawing.value = false;
+};
+
+const toggleDrawMode = () => {
+  drawMode.value = !drawMode.value;
+  if (!drawMode.value) {
+    drawing.value = false;
+  }
+};
+
+const loadROI = async () => {
+  try {
+    const res = await fetch(`${backendBase}/api/roi`);
+    const data = await res.json();
+    roi.value = data.roi;
+    hasROI.value = !!data.roi;
+  } catch (e) {
+    console.error('Failed to load ROI:', e);
+  }
+};
+
+const saveROI = async (newROI) => {
+  try {
+    const res = await fetch(`${backendBase}/api/roi`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newROI)
+    });
+    
+    if (res.ok) {
+      roi.value = newROI;
+      hasROI.value = true;
+      console.log('ROI saved:', newROI);
+    }
+  } catch (e) {
+    console.error('Failed to save ROI:', e);
+    alert('Ошибка сохранения зоны');
+  }
+};
+
+const clearROI = async () => {
+  try {
+    const res = await fetch(`${backendBase}/api/roi`, { method: 'DELETE' });
+    if (res.ok) {
+      roi.value = null;
+      hasROI.value = false;
+    }
+  } catch (e) {
+    console.error('Failed to clear ROI:', e);
+  }
+};
+
 onMounted(() => {
   setTimeout(() => {
     checkConnection();
+    setupCanvas();
+    loadROI();
   }, 500);
 
   checkInterval = setInterval(checkConnection, 3000);
+  
+  // WebSocket для ROI обновлений
+  socket = getSocket();
+  socket.on('roi:updated', (data) => {
+    roi.value = data;
+    hasROI.value = true;
+  });
+  socket.on('roi:cleared', () => {
+    roi.value = null;
+    hasROI.value = false;
+  });
+  
+  // Resize observer для canvas
+  window.addEventListener('resize', setupCanvas);
 });
 
 onBeforeUnmount(() => {
   if (checkInterval) {
     clearInterval(checkInterval);
   }
+  if (socket) {
+    socket.off('roi:updated');
+    socket.off('roi:cleared');
+  }
+  if (animationFrame) {
+    cancelAnimationFrame(animationFrame);
+  }
+  window.removeEventListener('resize', setupCanvas);
 });
 </script>
 
@@ -225,6 +486,21 @@ onBeforeUnmount(() => {
   overflow: hidden;
   aspect-ratio: 16 / 9;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.roi-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.roi-canvas.drawing-mode {
+  pointer-events: auto;
+  cursor: crosshair;
 }
 
 .video-feed {
@@ -352,6 +628,32 @@ onBeforeUnmount(() => {
 .legend-desc {
   font-size: 12px;
   color: #909399;
+}
+
+.roi-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.roi-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.roi-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.roi-info {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 /* Адаптивность */

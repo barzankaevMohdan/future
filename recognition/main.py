@@ -33,6 +33,9 @@ class Config:
     # Backend
     backend_url: str = os.getenv('BACKEND_URL', 'http://localhost:3000')
     
+    # ROI (Region of Interest)
+    check_roi_interval: float = 10.0  # Проверять ROI каждые N секунд
+    
     # Camera
     camera_source: str = os.getenv('CAMERA_SOURCE', '0')
     frame_skip: int = int(os.getenv('FRAME_SKIP', '3'))
@@ -63,6 +66,10 @@ class Config:
     reload_employees_interval: int = int(os.getenv('RELOAD_INTERVAL', '300'))
     video_stream_port: int = int(os.getenv('VIDEO_PORT', '5001'))
     cache_file: str = 'face_encodings_cache.pkl'
+    
+    # Video streaming optimization
+    stream_resize_width: int = int(os.getenv('STREAM_WIDTH', '0'))  # 0 = no resize, 1280, 960, 640
+    stream_jpeg_quality: int = int(os.getenv('STREAM_QUALITY', '85'))  # 1-100
     
     # Logging
     debug_mode: bool = os.getenv('DEBUG', 'true').lower() == 'true'
@@ -273,9 +280,16 @@ class FaceTracker:
         self.tracks: List[FaceTrack] = []
         self.next_track_id = 1
     
-    def update(self, faces, known_embeddings, known_ids) -> List[FaceTrack]:
+    def update(self, faces, known_embeddings, known_ids, roi=None, frame_shape=None) -> List[FaceTrack]:
         """
         Обновляет треки на основе детектированных лиц.
+        
+        Args:
+            faces: список детектированных лиц
+            known_embeddings: база эмбеддингов сотрудников
+            known_ids: ID сотрудников
+            roi: опциональная зона интереса {x, y, width, height} в %
+            frame_shape: (height, width) для ROI проверки
         
         Returns:
             List активных треков с распознанными сотрудниками
@@ -289,6 +303,11 @@ class FaceTracker:
         matched_track_ids = set()
         
         for face in faces:
+            # Проверяем находится ли лицо в ROI
+            if roi and frame_shape:
+                if not is_bbox_in_roi(face.bbox, roi, frame_shape):
+                    logger.debug(f'Face outside ROI, skipping')
+                    continue
             bbox = face.bbox
             embedding = face.normed_embedding
             
@@ -456,6 +475,54 @@ class PresenceManager:
                 'last_seen': 0.0,
                 'last_state_change': 0.0
             }
+
+
+# ============================================================================
+# ROI (REGION OF INTEREST)
+# ============================================================================
+
+def get_roi_from_backend() -> Optional[Dict]:
+    """Получает ROI с backend"""
+    try:
+        resp = requests.get(f'{config.backend_url}/api/roi', timeout=5)
+        if resp.ok:
+            data = resp.json()
+            return data.get('roi')
+    except Exception as e:
+        logger.debug(f'Failed to get ROI: {e}')
+    return None
+
+
+def is_bbox_in_roi(bbox: np.ndarray, roi: Optional[Dict], frame_shape: Tuple[int, int]) -> bool:
+    """
+    Проверяет находится ли bbox внутри ROI.
+    
+    Args:
+        bbox: [x1, y1, x2, y2] в пикселях
+        roi: {x, y, width, height} в процентах (0-100)
+        frame_shape: (height, width) кадра
+    
+    Returns:
+        True если bbox в ROI или ROI не установлен
+    """
+    if roi is None:
+        return True  # Нет ROI - обрабатываем всё
+    
+    frame_height, frame_width = frame_shape
+    
+    # Конвертируем ROI из процентов в пиксели
+    roi_x1 = int(roi['x'] * frame_width / 100)
+    roi_y1 = int(roi['y'] * frame_height / 100)
+    roi_x2 = int((roi['x'] + roi['width']) * frame_width / 100)
+    roi_y2 = int((roi['y'] + roi['height']) * frame_height / 100)
+    
+    # Центр bbox
+    x1, y1, x2, y2 = bbox.astype(int)
+    center_x = (x1 + x2) / 2
+    center_y = (y1 + y2) / 2
+    
+    # Проверяем что центр лица в ROI
+    return (roi_x1 <= center_x <= roi_x2 and roi_y1 <= center_y <= roi_y2)
 
 
 # ============================================================================
@@ -648,22 +715,34 @@ def connect_camera(max_retries=5) -> cv2.VideoCapture:
 # ============================================================================
 
 def generate_frames():
-    """Генератор кадров для MJPEG стрима"""
+    """Генератор кадров для MJPEG стрима - оптимизировано для плавности"""
     global current_frame
+    
     while True:
         with frame_lock:
             if current_frame is None:
-                time.sleep(0.1)
+                time.sleep(0.05)
                 continue
             frame = current_frame.copy()
         
-        ret, buffer = cv2.imencode('.jpg', frame)
+        # Опционально уменьшаем разрешение для более плавной передачи по сети
+        if config.stream_resize_width > 0:
+            h, w = frame.shape[:2]
+            new_w = config.stream_resize_width
+            new_h = int(h * (new_w / w))
+            frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        
+        # Кодируем в JPEG
+        ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, config.stream_jpeg_quality])
         if not ret:
+            time.sleep(0.01)
             continue
         
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        time.sleep(0.033)
+        
+        # Без задержки - максимальная плавность
+        time.sleep(0.001)
 
 
 @app.route('/video_feed')
@@ -714,6 +793,8 @@ def main():
     consecutive_failures = 0
     MAX_FAILURES = 10
     last_reload = time.time()
+    last_roi_check = 0.0
+    current_roi = None
     
     logger.info('🎬 Starting main loop...')
     
@@ -742,8 +823,20 @@ def main():
             
             consecutive_failures = 0
             
+            # Периодическая проверка ROI
+            now = time.time()
+            if now - last_roi_check > config.check_roi_interval:
+                new_roi = get_roi_from_backend()
+                if new_roi != current_roi:
+                    current_roi = new_roi
+                    if current_roi:
+                        logger.info(f'ROI updated: {current_roi}')
+                    else:
+                        logger.info('ROI cleared (full frame)')
+                last_roi_check = now
+            
             # Горячая перезагрузка сотрудников
-            if time.time() - last_reload > config.reload_employees_interval:
+            if now - last_reload > config.reload_employees_interval:
                 logger.info('Reloading employees...')
                 try:
                     new_embeddings, new_ids = load_employees()
@@ -762,74 +855,90 @@ def main():
             
             frame_count += 1
             
-            # Обрабатываем только каждый N-й кадр
-            if frame_count % config.frame_skip != 0:
-                # Обновляем видео стрим
-                with frame_lock:
-                    current_frame = frame.copy()
-                continue
-            
-            # Детекция и распознавание
-            faces = face_app.get(frame)
-            
-            # Обновляем треки
-            recognized_tracks = tracker.update(faces, known_embeddings, known_ids)
-            
-            # Получаем ID распознанных сотрудников
-            recognized_emp_ids = [t.recognized_employee_id for t in recognized_tracks]
-            
-            # Обновляем состояния присутствия
-            events = presence_manager.update(recognized_emp_ids)
-            
-            # Отправляем события
-            for emp_id, event_type in events:
-                send_event(emp_id, event_type)
-            
-            # Визуализация
+            # Визуализация (обновляем КАЖДЫЙ кадр для плавного видео)
             display_frame = frame.copy()
             
-            # Статус в углу
+            # Обрабатываем только каждый N-й кадр
+            process_this_frame = (frame_count % config.frame_skip == 0)
+            
+            if process_this_frame:
+                # Детекция и распознавание
+                faces = face_app.get(frame)
+                
+                # Обновляем треки (с учётом ROI)
+                frame_shape = (frame.shape[0], frame.shape[1])
+                recognized_tracks = tracker.update(faces, known_embeddings, known_ids, current_roi, frame_shape)
+                
+                # Получаем ID распознанных сотрудников
+                recognized_emp_ids = [t.recognized_employee_id for t in recognized_tracks]
+                
+                # Обновляем состояния присутствия
+                events = presence_manager.update(recognized_emp_ids)
+                
+                # Отправляем события
+                for emp_id, event_type in events:
+                    send_event(emp_id, event_type)
+            
+            # Визуализация (на КАЖДОМ кадре для плавного видео!)
             preprocessing_status = "CLAHE→Sharp→" if config.enable_preprocessing else ""
             status_text = (
                 f"{preprocessing_status}InsightFace | "
                 f"Tracks: {len(tracker.tracks)} | "
-                f"Recognized: {len(recognized_emp_ids)}"
+                f"Recognized: {len([t for t in tracker.tracks if t.recognized_employee_id])}"
             )
             cv2.putText(display_frame, status_text, (10, 30), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
             cv2.putText(display_frame, status_text, (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             
-            # Рисуем рамки
-            for track in recognized_tracks:
-                if track.last_bbox is not None:
-                    x1, y1, x2, y2 = track.last_bbox.astype(int)
-                    
+            # Рисуем ROI зону если установлена
+            if current_roi:
+                frame_h, frame_w = display_frame.shape[:2]
+                roi_x1 = int(current_roi['x'] * frame_w / 100)
+                roi_y1 = int(current_roi['y'] * frame_h / 100)
+                roi_x2 = int((current_roi['x'] + current_roi['width']) * frame_w / 100)
+                roi_y2 = int((current_roi['y'] + current_roi['height']) * frame_h / 100)
+                
+                # Полупрозрачная рамка ROI
+                cv2.rectangle(display_frame, (roi_x1, roi_y1), (roi_x2, roi_y2), (255, 255, 0), 2)
+                
+                # Затемняем области вне ROI
+                overlay = display_frame.copy()
+                cv2.rectangle(overlay, (0, 0), (frame_w, roi_y1), (0, 0, 0), -1)  # Верх
+                cv2.rectangle(overlay, (0, roi_y2), (frame_w, frame_h), (0, 0, 0), -1)  # Низ
+                cv2.rectangle(overlay, (0, roi_y1), (roi_x1, roi_y2), (0, 0, 0), -1)  # Слева
+                cv2.rectangle(overlay, (roi_x2, roi_y1), (frame_w, roi_y2), (0, 0, 0), -1)  # Справа
+                cv2.addWeighted(overlay, 0.3, display_frame, 0.7, 0, display_frame)
+                
+                # Метка ROI
+                cv2.putText(display_frame, "Recognition Zone", (roi_x1 + 10, roi_y1 + 25),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            
+            # Рисуем рамки для всех активных треков
+            for track in tracker.tracks:
+                if track.last_bbox is None:
+                    continue
+                
+                x1, y1, x2, y2 = track.last_bbox.astype(int)
+                
+                if track.recognized_employee_id:
                     # Зелёная рамка для распознанных
                     cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
-                    
-                    # Label с ID и уверенностью
                     label = f"ID: {track.recognized_employee_id} ({track.recognition_confidence:.0%})"
                     cv2.rectangle(display_frame, (x1, y2 - 30), (x2, y2), (0, 255, 0), cv2.FILLED)
                     cv2.putText(display_frame, label, (x1 + 6, y2 - 8),
                                cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 255, 255), 1)
-            
-            # Нераспознанные лица (треки без employee_id)
-            for track in tracker.tracks:
-                if track.recognized_employee_id is None and track.last_bbox is not None:
-                    x1, y1, x2, y2 = track.last_bbox.astype(int)
+                else:
+                    # Красная рамка для нераспознанных
                     cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
-                    
                     label = f"Track {track.track_id} ({len(track.embeddings)}/{config.min_good_embeddings_per_track})"
                     cv2.rectangle(display_frame, (x1, y2 - 30), (x2, y2), (0, 0, 255), cv2.FILLED)
                     cv2.putText(display_frame, label, (x1 + 6, y2 - 8),
                                cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 255, 255), 1)
             
-            # Сохраняем для стрима
+            # Обновляем видео стрим на КАЖДОМ кадре
             with frame_lock:
                 current_frame = display_frame
-            
-            time.sleep(0.05)
     
     finally:
         video_capture.release()

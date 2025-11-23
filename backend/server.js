@@ -161,6 +161,46 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// ROI (Region of Interest) endpoints
+let currentROI = null;  // { x, y, width, height } в процентах от размера видео
+
+app.get('/api/roi', (req, res) => {
+  res.json({ roi: currentROI });
+});
+
+app.post('/api/roi', (req, res) => {
+  try {
+    const { x, y, width, height } = req.body;
+    
+    // Валидация
+    if (x < 0 || y < 0 || width <= 0 || height <= 0 || 
+        x + width > 100 || y + height > 100) {
+      return res.status(400).json({ error: 'Invalid ROI coordinates' });
+    }
+    
+    currentROI = { x, y, width, height };
+    console.log('[backend] ROI updated:', currentROI);
+    
+    // Broadcast через WebSocket
+    broadcastUpdate('roi:updated', currentROI);
+    
+    res.json({ ok: true, roi: currentROI });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/roi', (req, res) => {
+  currentROI = null;
+  console.log('[backend] ROI cleared');
+  
+  // Broadcast
+  broadcastUpdate('roi:cleared', {});
+  
+  res.json({ ok: true });
+});
+
 // Statistics endpoint
 app.get('/api/statistics', async (req, res) => {
   try {
