@@ -5,3 +5,5 @@ flask
 flask-cors
 insightface
 onnxruntime
+insightface
+onnxruntime
