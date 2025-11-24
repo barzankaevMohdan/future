@@ -1,0 +1,52 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Устанавливаем системные зависимости в два этапа
+# Этап 1: Инструменты для сборки (будут удалены после установки Python пакетов)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    g++ \
+    gcc \
+    && apt-get clean
+
+# Этап 2: Runtime зависимости (останутся в образе)
+RUN apt-get install -y --no-install-recommends \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libgomp1 \
+    libgl1 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копируем requirements.txt
+COPY recognition/requirements.txt ./
+
+# Устанавливаем Python зависимости
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Удаляем инструменты сборки для уменьшения размера образа
+RUN apt-get purge -y --auto-remove \
+    build-essential \
+    cmake \
+    g++ \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копируем исходный код
+COPY recognition/ ./
+
+# Создаем директорию для кеша
+RUN mkdir -p /app/cache
+
+# Открываем порт для видео стрима
+EXPOSE 5001
+
+# Запускаем приложение
+CMD ["python", "main.py"]
+

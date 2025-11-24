@@ -50,3 +50,13 @@ dist/
 
 # OS
 Thumbs.db
+
+# Docker
+docker-compose.windows.tmp
+backups/
+*.tmp
+
+# Keep docker files
+!Dockerfile*
+!docker-compose*.yml
+!.dockerignore

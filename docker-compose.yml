@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: cafeface-backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - backend-uploads:/app/uploads
+      - backend-db:/app
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    restart: unless-stopped
+    networks:
+      - cafeface-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: cafeface-frontend
+    ports:
+      - "5173:80"
+    environment:
+      - VITE_BACKEND_URL=http://localhost:3000
+      - VITE_VIDEO_STREAM_URL=http://localhost:5001
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - cafeface-network
+
+  recognition:
+    build:
+      context: .
+      dockerfile: Dockerfile.recognition
+    container_name: cafeface-recognition
+    ports:
+      - "5001:5001"
+    volumes:
+      - recognition-cache:/app/cache
+    environment:
+      - BACKEND_URL=http://backend:3000
+      - CAMERA_SOURCE=0
+      - FRAME_SKIP=3
+      - MIN_FACE_HEIGHT=20
+      - MIN_BLUR_VAR=50.0
+      - ENABLE_PREPROCESSING=true
+      - CLAHE_CLIP=2.0
+      - DENOISE_STRENGTH=5
+      - INSIGHTFACE_THRESHOLD=0.2
+      - MIN_EMBEDDINGS=2
+      - TRACK_MAX_AGE=2.0
+      - IN_THRESHOLD=1.0
+      - OUT_THRESHOLD=10.0
+      - RELOAD_INTERVAL=300
+      - VIDEO_PORT=5001
+      - DEBUG=true
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - cafeface-network
+    # Для доступа к камере (если используется локальная камера)
+    devices:
+      - /dev/video0:/dev/video0
+    # Если камера не доступна, закомментируйте строку выше
+
+volumes:
+  backend-uploads:
+    driver: local
+  backend-db:
+    driver: local
+  recognition-cache:
+    driver: local
+
+networks:
+  cafeface-network:
+    driver: bridge
+
