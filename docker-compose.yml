@@ -70,10 +70,10 @@ services:
     restart: unless-stopped
     networks:
       - cafeface-network
-    # Для доступа к камере (если используется локальная камера)
-    devices:
-      - /dev/video0:/dev/video0
-    # Если камера не доступна, закомментируйте строку выше
+    # Примечание для macOS:
+    # Docker на macOS не поддерживает прямой доступ к /dev/video0
+    # Используйте CAMERA_SOURCE с RTSP URL вашей камеры
+    # Или запустите recognition service локально (без Docker)
 
 volumes:
   backend-uploads:
