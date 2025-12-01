@@ -118,6 +118,25 @@ export function toCameraPublic(camera: Camera): CameraPublic {
   return rest;
 }
 
+export async function getCamerasByCompanySlug(companySlug: string): Promise<Camera[] | null> {
+  const company = await prisma.company.findUnique({
+    where: { slug: companySlug },
+  });
+  
+  if (!company) {
+    return null;
+  }
+  
+  return prisma.camera.findMany({
+    where: {
+      companyId: company.id,
+      isActive: true,
+      recognitionEnabled: true,
+    },
+    orderBy: { id: 'asc' },
+  });
+}
+
 
 
 

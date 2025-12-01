@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { Refresh, User } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { io, Socket } from 'socket.io-client'
 import apiClient from '@/api/client'
 
 interface PresenceStatus {
   id: number
   name: string
-  roleTitle: string | null
+  role: string | null
   photoUrl: string | null
   present: boolean
   lastEventType: string | null
@@ -22,12 +24,19 @@ onMounted(async () => {
   connectSocket()
 })
 
+onUnmounted(() => {
+  if (socket) {
+    socket.disconnect()
+  }
+})
+
 async function loadPresence() {
+  loading.value = true
   try {
     const response = await apiClient.get('/api/presence')
     presence.value = response.data
   } catch (error) {
-    console.error('Failed to load presence:', error)
+    ElMessage.error('Не удалось загрузить данные о присутствии')
   } finally {
     loading.value = false
   }
@@ -46,7 +55,6 @@ function connectSocket() {
 
   socket.on('event:created', (data: any) => {
     console.log('Event received:', data)
-    // Reload presence on new event
     loadPresence()
   })
 
@@ -56,151 +64,142 @@ function connectSocket() {
 }
 
 function formatTime(time: string | null): string {
-  if (!time) return '-'
-  return new Date(time).toLocaleString()
+  if (!time) return '—'
+  return new Date(time).toLocaleString('ru-RU')
 }
 </script>
 
 <template>
-  <div class="page">
-    <header class="page-header">
-      <h1>Employee Presence</h1>
-      <button @click="loadPresence" class="secondary">Refresh</button>
-    </header>
+  <div class="page-container">
+    <el-page-header class="page-header">
+      <template #content>
+        <h1 class="page-title">Присутствие сотрудников</h1>
+      </template>
+      <template #extra>
+        <el-button :icon="Refresh" @click="loadPresence" :loading="loading">
+          Обновить
+        </el-button>
+      </template>
+    </el-page-header>
 
-    <div v-if="loading" class="loading">Loading...</div>
-
-    <div v-else class="presence-grid">
-      <div
+    <div v-loading="loading" class="presence-grid">
+      <el-card
         v-for="emp in presence"
         :key="emp.id"
-        :class="['presence-card', 'card', emp.present ? 'present' : 'absent']"
+        shadow="hover"
+        :class="['presence-card', emp.present ? 'present' : 'absent']"
       >
-        <img
-          v-if="emp.photoUrl"
-          :src="emp.photoUrl"
-          class="employee-photo"
-          alt="Photo"
-        />
-        <div v-else class="no-photo">No Photo</div>
+        <div class="employee-content">
+          <el-avatar :src="emp.photoUrl" :size="100">
+            <el-icon :size="50"><User /></el-icon>
+          </el-avatar>
 
-        <div class="employee-info">
-          <h3>{{ emp.name }}</h3>
-          <p class="role">{{ emp.roleTitle || 'Employee' }}</p>
-          
-          <div :class="['status-badge', emp.present ? 'present' : 'absent']">
-            {{ emp.present ? '✅ Present' : '⭕ Absent' }}
-          </div>
+          <div class="employee-info">
+            <h3 class="employee-name">{{ emp.name }}</h3>
+            <p class="employee-role">{{ emp.role || 'Сотрудник' }}</p>
+            
+            <el-tag :type="emp.present ? 'success' : 'info'" size="large" style="margin-top: 12px;">
+              {{ emp.present ? '✅ Присутствует' : '⭕ Отсутствует' }}
+            </el-tag>
 
-          <div v-if="emp.lastEventTime" class="last-event">
-            Last: {{ emp.lastEventType }} at {{ formatTime(emp.lastEventTime) }}
+            <div v-if="emp.lastEventTime" class="last-event">
+              Последнее: {{ emp.lastEventType }} в {{ formatTime(emp.lastEventTime) }}
+            </div>
           </div>
         </div>
-      </div>
+      </el-card>
     </div>
+
+    <el-empty v-if="!loading && presence.length === 0" description="Нет сотрудников" />
   </div>
 </template>
 
 <style scoped>
-.page {
-  padding: 2rem;
+.page-container {
+  padding: 24px;
   max-width: 1400px;
   margin: 0 auto;
 }
 
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
+  margin-bottom: 24px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #303133;
 }
 
 .presence-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 24px;
+}
+
+@media (max-width: 768px) {
+  .presence-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+  }
+  
+  .page-container {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .presence-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .presence-card {
-  padding: 1.5rem;
-  text-align: center;
-  transition: all 0.2s;
+  transition: all 0.3s;
 }
 
 .presence-card.present {
-  border-left: 4px solid var(--success-color);
+  border-left: 4px solid #67c23a;
 }
 
 .presence-card.absent {
-  border-left: 4px solid var(--text-secondary);
+  border-left: 4px solid #909399;
 }
 
-.employee-photo {
-  width: 100px;
-  height: 100px;
-  border-radius: 50%;
-  object-fit: cover;
-  margin-bottom: 1rem;
+.presence-card:hover {
+  transform: translateY(-4px);
 }
 
-.no-photo {
-  width: 100px;
-  height: 100px;
-  border-radius: 50%;
-  background: var(--bg-secondary);
+.employee-content {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  margin: 0 auto 1rem;
-  color: var(--text-secondary);
-  font-size: 0.75rem;
+  text-align: center;
 }
 
-.employee-info h3 {
-  font-size: 1.125rem;
-  margin-bottom: 0.25rem;
+.employee-info {
+  width: 100%;
+  margin-top: 16px;
 }
 
-.role {
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-  margin-bottom: 1rem;
+.employee-name {
+  margin: 0 0 4px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
 }
 
-.status-badge {
-  display: inline-block;
-  padding: 0.5rem 1rem;
-  border-radius: 0.375rem;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-}
-
-.status-badge.present {
-  background: #d1fae5;
-  color: #065f46;
-}
-
-.status-badge.absent {
-  background: #f3f4f6;
-  color: #6b7280;
+.employee-role {
+  margin: 0;
+  font-size: 14px;
+  color: #909399;
 }
 
 .last-event {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  margin-top: 0.5rem;
-}
-
-.loading {
-  text-align: center;
-  padding: 2rem;
-  color: var(--text-secondary);
+  margin-top: 12px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
 }
 </style>
-
-
-
-
-
-
-

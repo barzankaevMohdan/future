@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { Plus, OfficeBuilding } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import apiClient from '@/api/client'
 
 interface Company {
@@ -12,7 +14,7 @@ interface Company {
 
 const companies = ref<Company[]>([])
 const loading = ref(true)
-const showForm = ref(false)
+const dialogVisible = ref(false)
 
 const form = ref({
   name: '',
@@ -24,11 +26,12 @@ onMounted(async () => {
 })
 
 async function loadCompanies() {
+  loading.value = true
   try {
     const response = await apiClient.get('/api/companies')
     companies.value = response.data
   } catch (error) {
-    console.error('Failed to load companies:', error)
+    ElMessage.error('Не удалось загрузить компании')
   } finally {
     loading.value = false
   }
@@ -37,154 +40,144 @@ async function loadCompanies() {
 async function handleSubmit() {
   try {
     await apiClient.post('/api/companies', form.value)
-    showForm.value = false
+    ElMessage.success('Компания успешно создана')
+    dialogVisible.value = false
     form.value = { name: '', slug: '' }
     await loadCompanies()
   } catch (error: any) {
-    alert(error.response?.data?.error || 'Failed to create company')
+    ElMessage.error(error.response?.data?.error || 'Не удалось создать компанию')
   }
 }
 
 async function toggleCompany(id: number, isActive: boolean) {
   try {
     await apiClient.put(`/api/companies/${id}`, { isActive: !isActive })
+    ElMessage.success(isActive ? 'Компания деактивирована' : 'Компания активирована')
     await loadCompanies()
   } catch (error) {
-    alert('Failed to update company')
+    ElMessage.error('Не удалось обновить компанию')
   }
 }
 
 function generateSlug() {
   form.value.slug = form.value.name
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/[^a-z0-9а-я]+/g, '-')
     .replace(/^-|-$/g, '')
 }
 </script>
 
 <template>
-  <div class="page">
-    <header class="page-header">
-      <h1>Companies</h1>
-      <button @click="showForm = !showForm" class="primary">
-        {{ showForm ? 'Cancel' : '+ Add Company' }}
-      </button>
-    </header>
+  <div class="page-container">
+    <el-page-header class="page-header">
+      <template #content>
+        <h1 class="page-title">Компании</h1>
+      </template>
+      <template #extra>
+        <el-button type="primary" :icon="Plus" @click="dialogVisible = true">
+          Добавить компанию
+        </el-button>
+      </template>
+    </el-page-header>
 
-    <div v-if="showForm" class="card form-card">
-      <h2>Add Company</h2>
-      <form @submit.prevent="handleSubmit">
-        <div class="form-group">
-          <label>Name *</label>
-          <input v-model="form.name" @input="generateSlug" required />
-        </div>
+    <el-card shadow="never">
+      <el-table :data="companies" v-loading="loading" style="width: 100%">
+        <el-table-column prop="id" label="ID" width="80" />
+        
+        <el-table-column prop="name" label="Название" min-width="200" />
+        
+        <el-table-column label="Slug" min-width="180">
+          <template #default="{ row }">
+            <el-tag type="info">{{ row.slug }}</el-tag>
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="Статус" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.isActive ? 'success' : 'danger'">
+              {{ row.isActive ? 'Активна' : 'Неактивна' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="Создана" width="150">
+          <template #default="{ row }">
+            {{ new Date(row.createdAt).toLocaleDateString('ru-RU') }}
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="Действия" width="150" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              :type="row.isActive ? 'warning' : 'success'"
+              @click="toggleCompany(row.id, row.isActive)"
+            >
+              {{ row.isActive ? 'Деактивировать' : 'Активировать' }}
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
 
-        <div class="form-group">
-          <label>Slug *</label>
-          <input v-model="form.slug" required pattern="[a-z0-9-]+" />
-          <small>Lowercase letters, numbers and hyphens only</small>
-        </div>
+    <el-dialog
+      v-model="dialogVisible"
+      title="Добавить компанию"
+      width="500px"
+    >
+      <el-form :model="form" label-width="100px">
+        <el-form-item label="Название" required>
+          <el-input
+            v-model="form.name"
+            placeholder="Название компании"
+            @input="generateSlug"
+          />
+        </el-form-item>
 
-        <button type="submit" class="primary">Create Company</button>
-      </form>
-    </div>
+        <el-form-item label="Slug" required>
+          <el-input
+            v-model="form.slug"
+            placeholder="company-slug"
+          >
+            <template #prepend>/</template>
+          </el-input>
+          <template #extra>
+            <span style="font-size: 12px; color: #909399;">
+              Только строчные буквы, цифры и дефисы
+            </span>
+          </template>
+        </el-form-item>
+      </el-form>
 
-    <div v-if="loading" class="loading">Loading...</div>
-
-    <div v-else class="card">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Name</th>
-            <th>Slug</th>
-            <th>Status</th>
-            <th>Created</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="company in companies" :key="company.id">
-            <td>{{ company.id }}</td>
-            <td>{{ company.name }}</td>
-            <td><code>{{ company.slug }}</code></td>
-            <td>
-              <span :class="['badge', company.isActive ? 'success' : 'danger']">
-                {{ company.isActive ? 'Active' : 'Inactive' }}
-              </span>
-            </td>
-            <td>{{ new Date(company.createdAt).toLocaleDateString() }}</td>
-            <td>
-              <button @click="toggleCompany(company.id, company.isActive)" class="secondary small">
-                {{ company.isActive ? 'Deactivate' : 'Activate' }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      <template #footer>
+        <el-button @click="dialogVisible = false">Отмена</el-button>
+        <el-button type="primary" @click="handleSubmit">Создать</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.page {
-  padding: 2rem;
+.page-container {
+  padding: 24px;
   max-width: 1400px;
   margin: 0 auto;
 }
 
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
+  margin-bottom: 24px;
 }
 
-.form-card {
-  margin-bottom: 2rem;
+.page-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #303133;
 }
 
-.form-group {
-  margin-bottom: 1rem;
-}
-
-label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-}
-
-small {
-  display: block;
-  margin-top: 0.25rem;
-  color: var(--text-secondary);
-  font-size: 0.75rem;
-}
-
-code {
-  background: var(--bg-secondary);
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.25rem;
-  font-family: monospace;
-  font-size: 0.875rem;
-}
-
-button.small {
-  padding: 0.25rem 0.75rem;
-  font-size: 0.75rem;
-  margin-right: 0.5rem;
-}
-
-.loading {
-  text-align: center;
-  padding: 2rem;
-  color: var(--text-secondary);
+@media (max-width: 768px) {
+  .page-container {
+    padding: 16px;
+  }
 }
 </style>
-
-
-
-
-
-
-

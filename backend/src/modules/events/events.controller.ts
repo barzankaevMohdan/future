@@ -8,6 +8,7 @@ const createEventSchema = z.object({
   employeeId: z.number().int().positive(),
   type: z.enum(['IN', 'OUT']),
   timestamp: z.string().datetime().optional(),
+  cameraId: z.number().int().positive().optional(),
 });
 
 export async function createEventHandler(
@@ -22,6 +23,7 @@ export async function createEventHandler(
       employeeId: body.employeeId,
       type: body.type as EventType,
       timestamp: body.timestamp ? new Date(body.timestamp) : undefined,
+      cameraId: body.cameraId,
     };
     
     const result = await eventsService.createEvent(input);

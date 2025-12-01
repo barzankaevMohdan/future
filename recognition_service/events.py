@@ -31,10 +31,12 @@ def send_event(employee_id: int, event_type: EventType, config: Config) -> bool:
     payload = {
         'employeeId': employee_id,
         'type': event_type,
+        'cameraId': int(config.camera_id) if config.camera_id.isdigit() else None,
     }
     
     try:
-        logger.info(f'📤 Sending event {event_type} for employee {employee_id}')
+        camera_info = f' from camera {config.camera_id}' if config.camera_id else ''
+        logger.info(f'📤 Sending event {event_type} for employee {employee_id}{camera_info}')
         
         response = requests.post(url, json=payload, timeout=5)
         

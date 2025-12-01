@@ -44,13 +44,14 @@ def start_flask_server(config: Config) -> None:
     )
 
 
-def run(face_app: Any, config: Config) -> None:
+def run(face_app: Any, config: Config, stop_flag: threading.Event = None) -> None:
     """
     Main video processing loop.
     
     Args:
         face_app: InsightFace FaceAnalysis instance
         config: Service configuration
+        stop_flag: Optional threading.Event to signal graceful shutdown
     """
     # Load employees
     known_embeddings, known_ids = load_employees_from_backend(config, face_app)
@@ -82,6 +83,11 @@ def run(face_app: Any, config: Config) -> None:
     
     try:
         while True:
+            # Check for stop signal
+            if stop_flag and stop_flag.is_set():
+                logger.info('Stop signal received, exiting gracefully...')
+                break
+            
             # Minimize latency for RTSP
             if is_rtsp_stream(config.camera_source) and frame_count % 2 == 0:
                 minimize_latency_for_rtsp(video_capture)

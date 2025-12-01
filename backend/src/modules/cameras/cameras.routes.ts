@@ -4,6 +4,9 @@ import * as camerasController from './cameras.controller';
 
 const router = Router();
 
+// Public endpoint for recognition service (no auth)
+router.get('/public/:companySlug/cameras', camerasController.getCompanyCamerasPublicHandler);
+
 router.use(authenticate);
 router.use(requireCompanyAccess);
 

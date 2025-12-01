@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useAuthStore } from '@/stores/auth'
+import { User, VideoCamera, Calendar, TrendCharts } from '@element-plus/icons-vue'
 import apiClient from '@/api/client'
-
-const authStore = useAuthStore()
 
 const stats = ref({
   totalEmployees: 0,
@@ -15,8 +13,12 @@ const stats = ref({
 const loading = ref(true)
 
 onMounted(async () => {
+  await loadStats()
+})
+
+async function loadStats() {
+  loading.value = true
   try {
-    // Fetch basic stats
     const [employees, presence, cameras] = await Promise.all([
       apiClient.get('/api/employees'),
       apiClient.get('/api/presence'),
@@ -27,10 +29,17 @@ onMounted(async () => {
     stats.value.presentEmployees = presence.data.filter((p: any) => p.present).length
     stats.value.activeCameras = cameras.data.filter((c: any) => c.isActive).length
 
-    // Get today's events count
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    
     const events = await apiClient.get('/api/events', {
-      params: { dateFrom: today, dateTo: today, limit: 1 },
+      params: {
+        dateFrom: today.toISOString(),
+        dateTo: tomorrow.toISOString(),
+        limit: 1
+      },
     })
     stats.value.eventsToday = events.data.pagination.total
   } catch (error) {
@@ -38,204 +47,238 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
-
-function logout() {
-  authStore.logout()
 }
 </script>
 
 <template>
-  <div class="dashboard">
-    <header class="header">
-      <h1>Dashboard</h1>
-      <div class="user-info">
-        <span>{{ authStore.user?.email }}</span>
-        <button @click="logout" class="secondary">Logout</button>
-      </div>
-    </header>
+  <div class="page-container">
+    <h1 class="page-title">Панель управления</h1>
 
-    <nav class="nav">
-      <router-link to="/dashboard">Dashboard</router-link>
-      <router-link to="/employees">Employees</router-link>
-      <router-link to="/cameras">Cameras</router-link>
-      <router-link to="/presence">Presence</router-link>
-      <router-link to="/events">Events</router-link>
-      <router-link to="/statistics">Statistics</router-link>
-      <router-link v-if="authStore.isSuperAdmin" to="/companies">Companies</router-link>
-    </nav>
+    <div v-loading="loading" class="stats-grid">
+      <el-card shadow="hover" class="stat-card">
+        <div class="stat-content">
+          <div class="stat-icon primary">
+            <el-icon :size="32"><User /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.totalEmployees }}</div>
+            <div class="stat-label">Всего сотрудников</div>
+          </div>
+        </div>
+      </el-card>
 
-    <main class="content">
-      <div v-if="loading" class="loading">Loading...</div>
+      <el-card shadow="hover" class="stat-card">
+        <div class="stat-content">
+          <div class="stat-icon success">
+            <el-icon :size="32"><User /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value success">{{ stats.presentEmployees }}</div>
+            <div class="stat-label">Присутствуют сейчас</div>
+          </div>
+        </div>
+      </el-card>
+
+      <el-card shadow="hover" class="stat-card">
+        <div class="stat-content">
+          <div class="stat-icon warning">
+            <el-icon :size="32"><Calendar /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.eventsToday }}</div>
+            <div class="stat-label">События сегодня</div>
+          </div>
+        </div>
+      </el-card>
+
+      <el-card shadow="hover" class="stat-card">
+        <div class="stat-content">
+          <div class="stat-icon info">
+            <el-icon :size="32"><VideoCamera /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.activeCameras }}</div>
+            <div class="stat-label">Активные камеры</div>
+          </div>
+        </div>
+      </el-card>
+    </div>
+
+    <el-card shadow="never" style="margin-top: 24px">
+      <template #header>
+        <h2 style="margin: 0; font-size: 18px;">Быстрые действия</h2>
+      </template>
       
-      <div v-else class="stats-grid">
-        <div class="stat-card card">
-          <div class="stat-label">Total Employees</div>
-          <div class="stat-value">{{ stats.totalEmployees }}</div>
-        </div>
-
-        <div class="stat-card card">
-          <div class="stat-label">Present Now</div>
-          <div class="stat-value success">{{ stats.presentEmployees }}</div>
-        </div>
-
-        <div class="stat-card card">
-          <div class="stat-label">Events Today</div>
-          <div class="stat-value">{{ stats.eventsToday }}</div>
-        </div>
-
-        <div class="stat-card card">
-          <div class="stat-label">Active Cameras</div>
-          <div class="stat-value">{{ stats.activeCameras }}</div>
-        </div>
+      <div class="quick-links">
+        <router-link to="/employees" class="quick-link">
+          <el-icon :size="40"><User /></el-icon>
+          <span>Управление сотрудниками</span>
+        </router-link>
+        <router-link to="/cameras" class="quick-link">
+          <el-icon :size="40"><VideoCamera /></el-icon>
+          <span>Управление камерами</span>
+        </router-link>
+        <router-link to="/presence" class="quick-link">
+          <el-icon :size="40"><TrendCharts /></el-icon>
+          <span>Посещаемость</span>
+        </router-link>
+        <router-link to="/events" class="quick-link">
+          <el-icon :size="40"><Calendar /></el-icon>
+          <span>История событий</span>
+        </router-link>
+        <router-link to="/live" class="quick-link">
+          <el-icon :size="40"><VideoCamera /></el-icon>
+          <span>Прямые трансляции</span>
+        </router-link>
       </div>
-
-      <div class="card" style="margin-top: 2rem">
-        <h2>Quick Links</h2>
-        <div class="quick-links">
-          <router-link to="/employees" class="quick-link">
-            <span>👥</span>
-            <span>Manage Employees</span>
-          </router-link>
-          <router-link to="/cameras" class="quick-link">
-            <span>📹</span>
-            <span>Manage Cameras</span>
-          </router-link>
-          <router-link to="/presence" class="quick-link">
-            <span>✅</span>
-            <span>View Presence</span>
-          </router-link>
-          <router-link to="/events" class="quick-link">
-            <span>📊</span>
-            <span>Event History</span>
-          </router-link>
-          <router-link to="/live" class="quick-link">
-            <span>📺</span>
-            <span>Live Streams</span>
-          </router-link>
-        </div>
-      </div>
-    </main>
+    </el-card>
   </div>
 </template>
 
 <style scoped>
-.dashboard {
-  min-height: 100vh;
-  background: #f5f5f5;
-}
-
-.header {
-  background: white;
-  padding: 1rem 2rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.user-info {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-}
-
-.nav {
-  background: white;
-  padding: 0 2rem;
-  display: flex;
-  gap: 2rem;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.nav a {
-  padding: 1rem 0;
-  text-decoration: none;
-  color: var(--text-secondary);
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-}
-
-.nav a:hover {
-  color: var(--primary-color);
-}
-
-.nav a.router-link-active {
-  color: var(--primary-color);
-  border-bottom-color: var(--primary-color);
-}
-
-.content {
-  padding: 2rem;
-  max-width: 1200px;
+.page-container {
+  padding: 24px;
+  max-width: 1400px;
   margin: 0 auto;
+}
+
+.page-title {
+  margin: 0 0 24px 0;
+  font-size: 28px;
+  font-weight: 600;
+  color: #303133;
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+}
+
+@media (max-width: 768px) {
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+  
+  .page-container {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .stat-card {
-  text-align: center;
-  padding: 2rem 1rem;
+  cursor: pointer;
+  transition: transform 0.2s;
 }
 
-.stat-label {
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-  margin-bottom: 0.5rem;
+.stat-card:hover {
+  transform: translateY(-4px);
+}
+
+.stat-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.stat-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stat-icon.primary {
+  background: #ecf5ff;
+  color: #409eff;
+}
+
+.stat-icon.success {
+  background: #f0f9ff;
+  color: #67c23a;
+}
+
+.stat-icon.warning {
+  background: #fdf6ec;
+  color: #e6a23c;
+}
+
+.stat-icon.info {
+  background: #f4f4f5;
+  color: #909399;
+}
+
+.stat-info {
+  flex: 1;
 }
 
 .stat-value {
-  font-size: 2.5rem;
+  font-size: 32px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #303133;
+  line-height: 1;
+  margin-bottom: 8px;
 }
 
 .stat-value.success {
-  color: var(--success-color);
+  color: #67c23a;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: #909399;
 }
 
 .quick-links {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-top: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .quick-links {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .quick-links {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .quick-link {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
-  padding: 1.5rem;
-  background: var(--bg-secondary);
-  border-radius: 0.5rem;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px 16px;
+  background: #f5f7fa;
+  border-radius: 8px;
   text-decoration: none;
-  color: var(--text-primary);
-  transition: all 0.2s;
+  color: #303133;
+  transition: all 0.3s;
+  min-height: 120px;
 }
 
 .quick-link:hover {
-  background: var(--primary-color);
+  background: #409eff;
   color: white;
-  transform: translateY(-2px);
+  transform: translateY(-4px);
+  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.3);
 }
 
-.quick-link span:first-child {
-  font-size: 2rem;
-}
-
-.loading {
+.quick-link span {
+  font-size: 14px;
+  font-weight: 500;
   text-align: center;
-  padding: 2rem;
-  color: var(--text-secondary);
 }
 </style>
-
-
-
-
-

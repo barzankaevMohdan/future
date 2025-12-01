@@ -10,37 +10,39 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/',
-    redirect: '/dashboard',
-  },
-  {
-    path: '/dashboard',
-    name: 'Dashboard',
-    component: () => import('@/views/Dashboard.vue'),
+    component: () => import('@/layouts/MainLayout.vue'),
     meta: { requiresAuth: true },
-  },
-  {
-    path: '/presence',
-    name: 'Presence',
-    component: () => import('@/views/Presence.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/events',
-    name: 'Events',
-    component: () => import('@/views/Events.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/statistics',
-    name: 'Statistics',
-    component: () => import('@/views/Statistics.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/live',
-    name: 'Live',
-    component: () => import('@/views/Live.vue'),
-    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        redirect: '/dashboard',
+      },
+      {
+        path: '/dashboard',
+        name: 'Dashboard',
+        component: () => import('@/views/Dashboard.vue'),
+      },
+      {
+        path: '/presence',
+        name: 'Presence',
+        component: () => import('@/views/Presence.vue'),
+      },
+      {
+        path: '/events',
+        name: 'Events',
+        component: () => import('@/views/Events.vue'),
+      },
+      {
+        path: '/statistics',
+        name: 'Statistics',
+        component: () => import('@/views/Statistics.vue'),
+      },
+      {
+        path: '/live',
+        name: 'Live',
+        component: () => import('@/views/Live.vue'),
+      },
+    ],
   },
 ]
 

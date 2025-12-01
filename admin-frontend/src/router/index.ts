@@ -10,55 +10,55 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/',
-    redirect: '/dashboard',
-  },
-  {
-    path: '/dashboard',
-    name: 'Dashboard',
-    component: () => import('@/views/Dashboard.vue'),
+    component: () => import('@/layouts/MainLayout.vue'),
     meta: { requiresAuth: true },
-  },
-  {
-    path: '/employees',
-    name: 'Employees',
-    component: () => import('@/views/Employees.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/cameras',
-    name: 'Cameras',
-    component: () => import('@/views/Cameras.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/presence',
-    name: 'Presence',
-    component: () => import('@/views/Presence.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/live',
-    name: 'Live',
-    component: () => import('@/views/Live.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/events',
-    name: 'Events',
-    component: () => import('@/views/Events.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/statistics',
-    name: 'Statistics',
-    component: () => import('@/views/Statistics.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/companies',
-    name: 'Companies',
-    component: () => import('@/views/Companies.vue'),
-    meta: { requiresAuth: true, requiresSuperAdmin: true },
+    children: [
+      {
+        path: '',
+        redirect: '/dashboard',
+      },
+      {
+        path: '/dashboard',
+        name: 'Dashboard',
+        component: () => import('@/views/Dashboard.vue'),
+      },
+      {
+        path: '/employees',
+        name: 'Employees',
+        component: () => import('@/views/Employees.vue'),
+      },
+      {
+        path: '/cameras',
+        name: 'Cameras',
+        component: () => import('@/views/Cameras.vue'),
+      },
+      {
+        path: '/presence',
+        name: 'Presence',
+        component: () => import('@/views/Presence.vue'),
+      },
+      {
+        path: '/live',
+        name: 'Live',
+        component: () => import('@/views/Live.vue'),
+      },
+      {
+        path: '/events',
+        name: 'Events',
+        component: () => import('@/views/Events.vue'),
+      },
+      {
+        path: '/statistics',
+        name: 'Statistics',
+        component: () => import('@/views/Statistics.vue'),
+      },
+      {
+        path: '/companies',
+        name: 'Companies',
+        component: () => import('@/views/Companies.vue'),
+        meta: { requiresSuperAdmin: true },
+      },
+    ],
   },
 ]
 

@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted } from 'vue'
+import { Refresh, Calendar } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import apiClient from '@/api/client'
 
 interface Event {
@@ -9,14 +11,17 @@ interface Event {
   timestamp: string
   employee: {
     name: string
-    roleTitle: string | null
+    role: string | null
+  }
+  camera?: {
+    name: string
   }
 }
 
 const events = ref<Event[]>([])
 const loading = ref(true)
-const page = ref(1)
-const limit = ref(50)
+const currentPage = ref(1)
+const pageSize = ref(50)
 const total = ref(0)
 
 const filters = ref({
@@ -29,177 +34,192 @@ onMounted(async () => {
   await loadEvents()
 })
 
-watch([page, filters], async () => {
-  await loadEvents()
-}, { deep: true })
-
 async function loadEvents() {
+  loading.value = true
   try {
-    loading.value = true
-    const response = await apiClient.get('/api/events', {
-      params: {
-        page: page.value,
-        limit: limit.value,
-        ...filters.value,
-      },
-    })
+    const params: any = {
+      page: currentPage.value,
+      limit: pageSize.value,
+    }
+    
+    // Add filters with proper ISO format
+    if (filters.value.dateFrom) {
+      const fromDate = new Date(filters.value.dateFrom)
+      fromDate.setHours(0, 0, 0, 0)
+      params.dateFrom = fromDate.toISOString()
+    }
+    
+    if (filters.value.dateTo) {
+      const toDate = new Date(filters.value.dateTo)
+      toDate.setHours(23, 59, 59, 999)
+      params.dateTo = toDate.toISOString()
+    }
+    
+    if (filters.value.type) {
+      params.type = filters.value.type
+    }
+    
+    const response = await apiClient.get('/api/events', { params })
     events.value = response.data.events
     total.value = response.data.pagination.total
   } catch (error) {
-    console.error('Failed to load events:', error)
+    ElMessage.error('Не удалось загрузить события')
   } finally {
     loading.value = false
   }
 }
 
 function formatTime(time: string): string {
-  return new Date(time).toLocaleString()
+  return new Date(time).toLocaleString('ru-RU')
 }
 
-function nextPage() {
-  page.value++
+function handlePageChange(page: number) {
+  currentPage.value = page
+  loadEvents()
 }
 
-function prevPage() {
-  if (page.value > 1) {
-    page.value--
-  }
+function resetFilters() {
+  filters.value = { dateFrom: '', dateTo: '', type: '' }
+  currentPage.value = 1
+  loadEvents()
 }
 </script>
 
 <template>
-  <div class="page">
-    <header class="page-header">
-      <h1>Events</h1>
-    </header>
+  <div class="page-container">
+    <el-page-header class="page-header">
+      <template #content>
+        <h1 class="page-title">События</h1>
+      </template>
+      <template #extra>
+        <el-button :icon="Refresh" @click="loadEvents" :loading="loading">
+          Обновить
+        </el-button>
+      </template>
+    </el-page-header>
 
-    <div class="card filters">
-      <h3>Filters</h3>
-      <div class="filter-row">
-        <div class="form-group">
-          <label>From Date</label>
-          <input v-model="filters.dateFrom" type="date" />
+    <el-card shadow="never" style="margin-bottom: 16px">
+      <template #header>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <el-icon><Calendar /></el-icon>
+          <span>Фильтры</span>
         </div>
+      </template>
+      
+      <el-form :model="filters" label-width="100px">
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="От даты">
+              <el-date-picker
+                v-model="filters.dateFrom"
+                type="date"
+                placeholder="Выберите дату"
+                style="width: 100%"
+                format="YYYY-MM-DD"
+                value-format="YYYY-MM-DD"
+                @change="loadEvents"
+              />
+            </el-form-item>
+          </el-col>
+          
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="До даты">
+              <el-date-picker
+                v-model="filters.dateTo"
+                type="date"
+                placeholder="Выберите дату"
+                style="width: 100%"
+                format="YYYY-MM-DD"
+                value-format="YYYY-MM-DD"
+                @change="loadEvents"
+              />
+            </el-form-item>
+          </el-col>
+          
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="Тип">
+              <el-select v-model="filters.type" placeholder="Все" style="width: 100%" @change="loadEvents">
+                <el-option label="Все" value="" />
+                <el-option label="Вход (IN)" value="IN" />
+                <el-option label="Выход (OUT)" value="OUT" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        
+        <el-form-item>
+          <el-button @click="resetFilters">Сбросить фильтры</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
 
-        <div class="form-group">
-          <label>To Date</label>
-          <input v-model="filters.dateTo" type="date" />
-        </div>
+    <el-card shadow="never">
+      <el-table :data="events" v-loading="loading" style="width: 100%">
+        <el-table-column prop="id" label="ID" width="80" />
+        
+        <el-table-column label="Время" width="200">
+          <template #default="{ row }">
+            {{ formatTime(row.timestamp) }}
+          </template>
+        </el-table-column>
+        
+        <el-table-column prop="employee.name" label="Сотрудник" min-width="180" />
+        
+        <el-table-column label="Должность" min-width="150">
+          <template #default="{ row }">
+            {{ row.employee.role || '—' }}
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="Тип" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.type === 'IN' ? 'success' : 'warning'">
+              {{ row.type === 'IN' ? 'Вход' : 'Выход' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="Камера" min-width="150">
+          <template #default="{ row }">
+            {{ row.camera?.name || '—' }}
+          </template>
+        </el-table-column>
+      </el-table>
 
-        <div class="form-group">
-          <label>Type</label>
-          <select v-model="filters.type">
-            <option value="">All</option>
-            <option value="IN">IN</option>
-            <option value="OUT">OUT</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label>&nbsp;</label>
-          <button @click="filters = { dateFrom: '', dateTo: '', type: '' }" class="secondary">
-            Clear
-          </button>
-        </div>
+      <div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+        <el-pagination
+          v-model:current-page="currentPage"
+          :page-size="pageSize"
+          :total="total"
+          layout="total, prev, pager, next"
+          @current-change="handlePageChange"
+        />
       </div>
-    </div>
-
-    <div v-if="loading" class="loading">Loading...</div>
-
-    <div v-else class="card">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Employee</th>
-            <th>Role</th>
-            <th>Type</th>
-            <th>Time</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="event in events" :key="event.id">
-            <td>{{ event.id }}</td>
-            <td>{{ event.employee.name }}</td>
-            <td>{{ event.employee.roleTitle || '-' }}</td>
-            <td>
-              <span :class="['badge', event.type === 'IN' ? 'success' : 'danger']">
-                {{ event.type }}
-              </span>
-            </td>
-            <td>{{ formatTime(event.timestamp) }}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div class="pagination">
-        <button @click="prevPage" :disabled="page === 1" class="secondary">
-          Previous
-        </button>
-        <span>Page {{ page }} (Total: {{ total }} events)</span>
-        <button @click="nextPage" :disabled="events.length < limit" class="secondary">
-          Next
-        </button>
-      </div>
-    </div>
+    </el-card>
   </div>
 </template>
 
 <style scoped>
-.page {
-  padding: 2rem;
+.page-container {
+  padding: 24px;
   max-width: 1400px;
   margin: 0 auto;
 }
 
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
+  margin-bottom: 24px;
 }
 
-.filters {
-  margin-bottom: 2rem;
+.page-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #303133;
 }
 
-.filter-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-.form-group {
-  margin-bottom: 0;
-}
-
-label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  font-size: 0.875rem;
-}
-
-.pagination {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border-color);
-}
-
-.loading {
-  text-align: center;
-  padding: 2rem;
-  color: var(--text-secondary);
+@media (max-width: 768px) {
+  .page-container {
+    padding: 16px;
+  }
 }
 </style>
-
-
-
-
-
-
-

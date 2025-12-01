@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { Plus, View, Connection, Delete, VideoCamera, Monitor } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import apiClient from '@/api/client'
 
 interface Camera {
@@ -17,6 +19,11 @@ interface Camera {
 const cameras = ref<Camera[]>([])
 const loading = ref(true)
 const showForm = ref(false)
+const dialogVisible = ref(false)
+const selectedCamera = ref<number | null>(null)
+const streamUrl = ref('')
+const showRecognition = ref(false)
+const testingCamera = ref<number | null>(null)
 
 const form = ref({
   name: '',
@@ -34,11 +41,12 @@ onMounted(async () => {
 })
 
 async function loadCameras() {
+  loading.value = true
   try {
     const response = await apiClient.get('/api/cameras')
     cameras.value = response.data
   } catch (error) {
-    console.error('Failed to load cameras:', error)
+    ElMessage.error('Не удалось загрузить камеры')
   } finally {
     loading.value = false
   }
@@ -47,6 +55,7 @@ async function loadCameras() {
 async function handleSubmit() {
   try {
     await apiClient.post('/api/cameras', form.value)
+    ElMessage.success('Камера успешно добавлена')
     showForm.value = false
     form.value = {
       name: '',
@@ -60,70 +69,73 @@ async function handleSubmit() {
     }
     await loadCameras()
   } catch (error: any) {
-    alert(error.response?.data?.error || 'Failed to create camera')
+    ElMessage.error(error.response?.data?.error || 'Не удалось создать камеру')
   }
 }
 
 async function toggleCamera(id: number, isActive: boolean) {
   try {
     await apiClient.put(`/api/cameras/${id}`, { isActive: !isActive })
+    ElMessage.success(isActive ? 'Камера отключена' : 'Камера включена')
     await loadCameras()
   } catch (error) {
-    alert('Failed to update camera')
+    ElMessage.error('Не удалось обновить камеру')
   }
 }
 
 async function deleteCamera(id: number) {
-  if (!confirm('Delete this camera?')) return
-
   try {
+    await ElMessageBox.confirm('Вы уверены, что хотите удалить эту камеру?', 'Подтверждение', {
+      confirmButtonText: 'Удалить',
+      cancelButtonText: 'Отмена',
+      type: 'warning',
+    })
+    
     await apiClient.delete(`/api/cameras/${id}`)
+    ElMessage.success('Камера удалена')
     await loadCameras()
-  } catch (error) {
-    alert('Failed to delete camera')
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('Не удалось удалить камеру')
+    }
   }
 }
 
-const selectedCamera = ref<number | null>(null)
-const streamUrl = ref<string>('')
-const streamKey = ref(0)
-const testingCamera = ref<number | null>(null)
-
-async function viewStream(id: number) {
+async function viewStream(id: number, withRecognition = false) {
   try {
-    const response = await apiClient.get(`/api/cameras/${id}/stream-url`)
-    streamUrl.value = response.data.mjpegUrl
+    showRecognition.value = withRecognition
+    
+    if (withRecognition) {
+      streamUrl.value = `http://localhost:${5000 + id}/video_feed?ts=${Date.now()}`
+    } else {
+      const response = await apiClient.get(`/api/cameras/${id}/stream-url`)
+      streamUrl.value = `${response.data.mjpegUrl}?ts=${Date.now()}`
+    }
+    
     selectedCamera.value = id
-    streamKey.value++
+    dialogVisible.value = true
   } catch (error) {
-    alert('Failed to get stream URL')
+    ElMessage.error('Не удалось получить stream URL')
   }
 }
 
 function closeStream() {
+  dialogVisible.value = false
   selectedCamera.value = null
   streamUrl.value = ''
-  streamKey.value++
-}
-
-function handleStreamError() {
-  console.error('Failed to load stream:', streamUrl.value)
-}
-
-function handleStreamLoad() {
-  console.log('Stream loaded successfully')
+  showRecognition.value = false
 }
 
 async function testConnection(id: number) {
   try {
     testingCamera.value = id
     const response = await apiClient.get(`/api/cameras/${id}/rtsp-preview`)
-    alert(`RTSP OK (latency ${response.data.latencyMs ?? 'n/a'} ms)`)
+    ElMessage.success(`RTSP OK (latency ${response.data.latencyMs ?? 'n/a'} ms)`)
   } catch (error: any) {
-    alert(
+    ElMessage.error(
       error.response?.data?.error?.error ||
-        error.response?.data?.error ||
-        'Не удалось проверить поток'
+      error.response?.data?.error ||
+      'Не удалось проверить поток'
     )
   } finally {
     testingCamera.value = null
@@ -132,262 +144,254 @@ async function testConnection(id: number) {
 </script>
 
 <template>
-  <div class="page">
-    <header class="page-header">
-      <h1>Cameras</h1>
-      <button @click="showForm = !showForm" class="primary">
-        {{ showForm ? 'Cancel' : '+ Add Camera' }}
-      </button>
-    </header>
+  <div class="page-container">
+    <el-page-header class="page-header">
+      <template #content>
+        <h1 class="page-title">Камеры</h1>
+      </template>
+      <template #extra>
+        <el-button type="primary" :icon="Plus" @click="showForm = !showForm">
+          {{ showForm ? 'Отмена' : 'Добавить камеру' }}
+        </el-button>
+      </template>
+    </el-page-header>
 
-    <div v-if="selectedCamera" class="modal" @click="closeStream">
-      <div class="modal-content" @click.stop>
-        <button @click="closeStream" class="close-btn">✕</button>
-        <h2>Camera {{ selectedCamera }} Stream</h2>
-        <div class="stream-container">
-          <img
-            :src="streamUrl"
-            :key="streamKey"
-            crossorigin="anonymous"
-            alt="Camera stream"
-            class="stream-view"
-            @error="handleStreamError"
-            @load="handleStreamLoad"
-          />
-        </div>
-      </div>
-    </div>
+    <el-card v-if="showForm" class="form-card" shadow="never">
+      <template #header>
+        <h2 style="margin: 0; font-size: 18px;">Добавить камеру</h2>
+      </template>
+      
+      <el-form :model="form" label-width="140px" label-position="left">
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="Название" required>
+              <el-input v-model="form.name" placeholder="Например, Вход в офис" />
+            </el-form-item>
+          </el-col>
+          
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="Расположение">
+              <el-input v-model="form.location" placeholder="Например, 1 этаж" />
+            </el-form-item>
+          </el-col>
+        </el-row>
 
-    <div v-if="showForm" class="card form-card">
-      <h2>Add Camera</h2>
-      <form @submit.prevent="handleSubmit">
-        <div class="form-row">
-          <div class="form-group">
-            <label>Name *</label>
-            <input v-model="form.name" required />
-          </div>
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="IP адрес" required>
+              <el-input v-model="form.ip" placeholder="192.168.1.10" />
+            </el-form-item>
+          </el-col>
+          
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="RTSP порт">
+              <el-input-number v-model="form.rtspPort" :min="1" :max="65535" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+        </el-row>
 
-          <div class="form-group">
-            <label>Location</label>
-            <input v-model="form.location" placeholder="Front Door, Office, etc." />
-          </div>
-        </div>
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="Имя пользователя" required>
+              <el-input v-model="form.username" placeholder="admin" />
+            </el-form-item>
+          </el-col>
+          
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="Пароль" required>
+              <el-input v-model="form.password" type="password" show-password />
+            </el-form-item>
+          </el-col>
+        </el-row>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label>IP Address *</label>
-            <input v-model="form.ip" required placeholder="192.168.1.11" />
-          </div>
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="RTSP путь">
+              <el-input v-model="form.rtspPath" placeholder="/ISAPI/Streaming/Channels/101" />
+            </el-form-item>
+          </el-col>
+          
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="Распознавание">
+              <el-switch v-model="form.recognitionEnabled" />
+            </el-form-item>
+          </el-col>
+        </el-row>
 
-          <div class="form-group">
-            <label>RTSP Port</label>
-            <input v-model.number="form.rtspPort" type="number" />
-          </div>
-        </div>
+        <el-form-item>
+          <el-button type="primary" @click="handleSubmit">Создать</el-button>
+          <el-button @click="showForm = false">Отмена</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label>Username *</label>
-            <input v-model="form.username" required />
-          </div>
-
-          <div class="form-group">
-            <label>Password *</label>
-            <input v-model="form.password" type="password" required />
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>RTSP Path</label>
-          <input v-model="form.rtspPath" placeholder="/ISAPI/Streaming/Channels/101" />
-        </div>
-
-        <div class="form-group">
-          <label>
-            <input v-model="form.recognitionEnabled" type="checkbox" />
-            Enable Recognition
-          </label>
-        </div>
-
-        <button type="submit" class="primary">Create Camera</button>
-      </form>
-    </div>
-
-    <div v-if="loading" class="loading">Loading...</div>
-
-    <div v-else class="card">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Name</th>
-            <th>Location</th>
-            <th>IP</th>
-            <th>Status</th>
-            <th>Recognition</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="camera in cameras" :key="camera.id">
-            <td>{{ camera.id }}</td>
-            <td>{{ camera.name }}</td>
-            <td>{{ camera.location || '-' }}</td>
-            <td>{{ camera.ip }}:{{ camera.rtspPort }}</td>
-            <td>
-              <span :class="['badge', camera.isActive ? 'success' : 'danger']">
-                {{ camera.isActive ? 'Active' : 'Inactive' }}
-              </span>
-            </td>
-            <td>
-              <span :class="['badge', camera.recognitionEnabled ? 'success' : 'warning']">
-                {{ camera.recognitionEnabled ? 'Enabled' : 'Disabled' }}
-              </span>
-            </td>
-            <td>
-              <button @click="viewStream(camera.id)" class="secondary small">
-                View
-              </button>
-              <button
-                @click="testConnection(camera.id)"
-                class="secondary small"
-                :disabled="testingCamera === camera.id"
+    <el-card shadow="never">
+      <el-table :data="cameras" v-loading="loading" style="width: 100%">
+        <el-table-column prop="id" label="ID" width="60" />
+        <el-table-column prop="name" label="Название" min-width="150" />
+        <el-table-column prop="location" label="Расположение" min-width="120">
+          <template #default="{ row }">
+            {{ row.location || '—' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="IP" min-width="150">
+          <template #default="{ row }">
+            {{ row.ip }}:{{ row.rtspPort }}
+          </template>
+        </el-table-column>
+        <el-table-column label="Статус" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.isActive ? 'success' : 'danger'" size="small">
+              {{ row.isActive ? 'Активна' : 'Неактивна' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="AI" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.recognitionEnabled ? 'success' : 'info'" size="small">
+              {{ row.recognitionEnabled ? 'Вкл' : 'Выкл' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="Действия" width="350" fixed="right">
+          <template #default="{ row }">
+            <div class="action-buttons">
+              <el-button
+                size="small"
+                type="primary"
+                :icon="VideoCamera"
+                :disabled="!row.isActive"
+                @click="viewStream(row.id, false)"
               >
-                {{ testingCamera === camera.id ? 'Testing...' : 'Test RTSP' }}
-              </button>
-              <button @click="toggleCamera(camera.id, camera.isActive)" class="secondary small">
-                {{ camera.isActive ? 'Disable' : 'Enable' }}
-              </button>
-              <button @click="deleteCamera(camera.id)" class="danger small">
-                Delete
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+                Видео
+              </el-button>
+              <el-button
+                size="small"
+                type="success"
+                :icon="Monitor"
+                :disabled="!row.isActive || !row.recognitionEnabled"
+                @click="viewStream(row.id, true)"
+              >
+                AI
+              </el-button>
+              <el-button
+                size="small"
+                :icon="Connection"
+                :loading="testingCamera === row.id"
+                @click="testConnection(row.id)"
+              >
+                Тест
+              </el-button>
+              <el-button
+                size="small"
+                @click="toggleCamera(row.id, row.isActive)"
+              >
+                {{ row.isActive ? 'Выкл' : 'Вкл' }}
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                :icon="Delete"
+                @click="deleteCamera(row.id)"
+              />
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-dialog
+      v-model="dialogVisible"
+      :title="cameras.find(c => c.id === selectedCamera)?.name || 'Камера'"
+      width="90%"
+      @close="closeStream"
+      center
+    >
+      <div v-if="showRecognition" class="recognition-indicator">
+        <el-tag type="success" size="large">
+          <el-icon><Monitor /></el-icon>
+          Режим распознавания
+        </el-tag>
+      </div>
+      
+      <div class="stream-container">
+        <img
+          v-if="streamUrl"
+          :src="streamUrl"
+          alt="Camera stream"
+          class="stream-image"
+        />
+      </div>
+      
+      <el-alert
+        v-if="showRecognition"
+        title="Зеленые рамки обозначают распознанные лица"
+        type="info"
+        :closable="false"
+        style="margin-top: 16px"
+      />
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.page {
-  padding: 2rem;
+.page-container {
+  padding: 24px;
   max-width: 1400px;
   margin: 0 auto;
 }
 
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
+  margin-bottom: 24px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #303133;
 }
 
 .form-card {
-  margin-bottom: 2rem;
+  margin-bottom: 24px;
 }
 
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-}
-
-.form-group {
-  margin-bottom: 1rem;
-}
-
-label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-}
-
-input[type="checkbox"] {
-  width: auto;
-  margin-right: 0.5rem;
-}
-
-button.small {
-  padding: 0.25rem 0.75rem;
-  font-size: 0.75rem;
-  margin-right: 0.5rem;
-}
-
-.loading {
-  text-align: center;
-  padding: 2rem;
-  color: var(--text-secondary);
-}
-
-.modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+.action-buttons {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 16px;
+  }
+  
+  .action-buttons {
+    flex-direction: column;
+  }
+}
+
+.recognition-indicator {
+  display: flex;
   justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background: white;
-  padding: 2rem;
-  border-radius: 0.5rem;
-  max-width: 90vw;
-  max-height: 90vh;
-  position: relative;
-}
-
-.close-btn {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  background: var(--danger-color);
-  color: white;
-  border: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 1.2rem;
-  line-height: 1;
+  margin-bottom: 16px;
 }
 
 .stream-container {
-  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.stream-view {
+.stream-image {
   max-width: 100%;
   max-height: 70vh;
   display: block;
-  margin: 1rem auto;
-  border: 2px solid var(--border-color);
-  border-radius: 0.5rem;
-}
-
-.stream-info {
-  margin-top: 1rem;
-  padding: 1rem;
-  background: var(--bg-secondary);
-  border-radius: 0.375rem;
-  text-align: left;
-}
-
-.stream-info p {
-  margin: 0.5rem 0;
-  font-size: 0.875rem;
-}
-
-.stream-info small {
-  color: var(--text-secondary);
+  border-radius: 8px;
 }
 </style>
-
-
-
-
