@@ -30,3 +30,4 @@ def initialize_face_app(config: Config) -> FaceAnalysis:
     
     return face_app
 
+
