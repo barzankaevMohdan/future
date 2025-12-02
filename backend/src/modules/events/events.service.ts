@@ -8,6 +8,7 @@ export interface CreateEventInput {
   employeeId: number;
   type: EventType;
   timestamp?: Date;
+  cameraId?: number;
 }
 
 export interface GetEventsQuery {
@@ -66,15 +67,17 @@ export async function createEvent(input: CreateEventInput): Promise<{ ok: boolea
       employeeId: input.employeeId,
       type: input.type,
       timestamp,
+      cameraId: input.cameraId || null,
     },
   });
   
-  logger.info(`Event ${input.type} created for employee ${input.employeeId}`);
+  logger.info(`Event ${input.type} created for employee ${input.employeeId}` + (input.cameraId ? ` from camera ${input.cameraId}` : ''));
   broadcastEvent('event:created', {
     employeeId: input.employeeId,
     companyId: employee.companyId,
     type: input.type,
     timestamp,
+    cameraId: input.cameraId,
   });
   
   return { ok: true };
@@ -112,6 +115,11 @@ export async function getEvents(query: GetEventsQuery): Promise<EventsResponse> 
       where,
       include: {
         employee: true,
+        camera: {
+          select: {
+            name: true,
+          },
+        },
       },
       orderBy: { timestamp: 'desc' },
       skip: offset,
@@ -122,8 +130,17 @@ export async function getEvents(query: GetEventsQuery): Promise<EventsResponse> 
   
   const totalPages = Math.ceil(total / limit);
   
+  // Transform employee data to match public format
+  const formattedEvents = events.map(event => ({
+    ...event,
+    employee: {
+      name: event.employee.name,
+      role: event.employee.roleTitle,
+    },
+  }));
+  
   return {
-    events,
+    events: formattedEvents,
     pagination: {
       page,
       limit,

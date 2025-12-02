@@ -2,24 +2,28 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { User, Lock } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
-const email = ref('')
-const password = ref('')
-const error = ref('')
+const loginForm = ref({
+  email: '',
+  password: '',
+})
+
 const loading = ref(false)
 
 async function handleLogin() {
-  error.value = ''
   loading.value = true
 
   try {
-    await authStore.login(email.value, password.value)
+    await authStore.login(loginForm.value.email, loginForm.value.password)
+    ElMessage.success('Вход выполнен успешно')
     router.push('/dashboard')
   } catch (err: any) {
-    error.value = err.response?.data?.error || 'Login failed'
+    ElMessage.error(err.response?.data?.error || 'Ошибка входа')
   } finally {
     loading.value = false
   }
@@ -28,40 +32,52 @@ async function handleLogin() {
 
 <template>
   <div class="login-page">
-    <div class="login-card card">
-      <h1>Attendance System</h1>
-      <p class="subtitle">Employee Portal</p>
+    <el-card class="login-card" shadow="always">
+      <div class="login-header">
+        <h1>Клиентская панель</h1>
+        <p class="subtitle">Система учета посещаемости</p>
+      </div>
 
-      <form @submit.prevent="handleLogin">
-        <div class="form-group">
-          <label>Email</label>
-          <input
-            v-model="email"
+      <el-form
+        :model="loginForm"
+        @submit.prevent="handleLogin"
+        label-position="top"
+        size="large"
+      >
+        <el-form-item label="Email">
+          <el-input
+            v-model="loginForm.email"
+            :prefix-icon="User"
             type="email"
+            placeholder="user@example.com"
             required
-            placeholder="user@company.com"
           />
-        </div>
+        </el-form-item>
 
-        <div class="form-group">
-          <label>Password</label>
-          <input
-            v-model="password"
+        <el-form-item label="Пароль">
+          <el-input
+            v-model="loginForm.password"
+            :prefix-icon="Lock"
             type="password"
-            required
             placeholder="••••••••"
+            show-password
+            required
           />
-        </div>
+        </el-form-item>
 
-        <div v-if="error" class="error-message">
-          {{ error }}
-        </div>
-
-        <button type="submit" class="primary" :disabled="loading">
-          {{ loading ? 'Logging in...' : 'Login' }}
-        </button>
-      </form>
-    </div>
+        <el-form-item>
+          <el-button
+            type="primary"
+            native-type="submit"
+            :loading="loading"
+            style="width: 100%"
+            size="large"
+          >
+            {{ loading ? 'Вход...' : 'Войти' }}
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
@@ -71,61 +87,41 @@ async function handleLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px;
 }
 
 .login-card {
   width: 100%;
-  max-width: 400px;
-  margin: 1rem;
+  max-width: 420px;
+  border-radius: 12px;
 }
 
-h1 {
-  font-size: 1.875rem;
+.login-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.login-header h1 {
+  margin: 0 0 8px 0;
+  font-size: 28px;
   font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 0.5rem;
+  color: #303133;
 }
 
 .subtitle {
-  color: var(--text-secondary);
-  margin-bottom: 2rem;
+  margin: 0;
+  font-size: 14px;
+  color: #909399;
 }
 
-.form-group {
-  margin-bottom: 1rem;
-}
-
-label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-input {
-  width: 100%;
-}
-
-button[type="submit"] {
-  width: 100%;
-  padding: 0.75rem;
-  margin-top: 1rem;
-}
-
-.error-message {
-  padding: 0.75rem;
-  background: #fee2e2;
-  color: #991b1b;
-  border-radius: 0.375rem;
-  margin-bottom: 1rem;
-  font-size: 0.875rem;
+@media (max-width: 480px) {
+  .login-page {
+    padding: 16px;
+  }
+  
+  .login-header h1 {
+    font-size: 24px;
+  }
 }
 </style>
-
-
-
-
-
-
-

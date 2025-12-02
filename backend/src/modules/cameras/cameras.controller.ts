@@ -223,6 +223,34 @@ export async function getRtspPreviewHandler(
   }
 }
 
+export async function getCompanyCamerasPublicHandler(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { companySlug } = req.params;
+    
+    const cameras = await camerasService.getCamerasByCompanySlug(companySlug);
+    
+    if (cameras === null) {
+      res.status(404).json({ error: 'Company not found' });
+      return;
+    }
+    
+    const result = cameras.map(camera => ({
+      id: camera.id,
+      name: camera.name,
+      location: camera.location,
+      streamUrl: `${config.cameraGatewayPublicUrl.replace(/\/$/, '')}/streams/${camera.id}.mjpg`,
+    }));
+    
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
 
 
 

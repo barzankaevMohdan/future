@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { VideoCamera, Monitor } from '@element-plus/icons-vue'
 import apiClient from '@/api/client'
 
 interface Camera {
@@ -11,13 +12,16 @@ interface Camera {
 
 const cameras = ref<Camera[]>([])
 const streams = ref<Record<number, string>>({})
+const recognitionStreams = ref<Record<number, string>>({})
 const loading = ref(true)
+const showRecognition = ref<Record<number, boolean>>({})
 
 onMounted(async () => {
   await loadCameras()
 })
 
 async function loadCameras() {
+  loading.value = true
   try {
     const response = await apiClient.get('/api/cameras')
     cameras.value = response.data
@@ -26,6 +30,8 @@ async function loadCameras() {
       if (camera.isActive) {
         const stream = await apiClient.get(`/api/cameras/${camera.id}/stream-url`)
         streams.value[camera.id] = `${stream.data.mjpegUrl}?ts=${Date.now()}`
+        recognitionStreams.value[camera.id] = `http://localhost:${5000 + camera.id}/video_feed?ts=${Date.now()}`
+        showRecognition.value[camera.id] = false
       }
     }
   } catch (error) {
@@ -34,106 +40,158 @@ async function loadCameras() {
     loading.value = false
   }
 }
+
+function toggleRecognition(cameraId: number) {
+  showRecognition.value[cameraId] = !showRecognition.value[cameraId]
+}
 </script>
 
 <template>
-  <div class="page">
-    <header class="page-header">
-      <h1>Live Streams</h1>
-      <button @click="loadCameras" class="secondary">Refresh</button>
-    </header>
+  <div class="page-container">
+    <el-page-header class="page-header">
+      <template #content>
+        <h1 class="page-title">Прямые трансляции</h1>
+      </template>
+      <template #extra>
+        <el-button @click="loadCameras" :loading="loading">
+          Обновить
+        </el-button>
+      </template>
+    </el-page-header>
 
-    <div v-if="loading" class="loading">Loading...</div>
+    <div v-if="loading" class="loading-container">
+      <el-skeleton :rows="3" animated />
+    </div>
 
-    <div v-else class="grid">
-      <article
+    <div v-else class="cameras-grid">
+      <el-card
         v-for="camera in cameras"
         :key="camera.id"
-        class="card"
+        class="camera-card"
+        shadow="hover"
       >
-        <div class="card-header">
-          <div>
-            <h3>{{ camera.name }}</h3>
-            <p class="muted">{{ camera.location || '—' }}</p>
+        <template #header>
+          <div class="card-header">
+            <div class="camera-info">
+              <h3 class="camera-name">{{ camera.name }}</h3>
+              <p class="camera-location">{{ camera.location || '—' }}</p>
+            </div>
+            <el-tag :type="camera.isActive ? 'success' : 'danger'" size="small">
+              {{ camera.isActive ? 'Активна' : 'Неактивна' }}
+            </el-tag>
           </div>
-          <span :class="['badge', camera.isActive ? 'success' : 'danger']">
-            {{ camera.isActive ? 'Active' : 'Inactive' }}
-          </span>
+        </template>
+
+        <div v-if="camera.isActive && streams[camera.id]" class="stream-wrapper">
+          <img
+            :src="showRecognition[camera.id] ? recognitionStreams[camera.id] : streams[camera.id]"
+            class="stream-image"
+            :alt="camera.name"
+          />
+          
+          <el-button
+            :type="showRecognition[camera.id] ? 'success' : 'primary'"
+            :icon="showRecognition[camera.id] ? Monitor : VideoCamera"
+            @click="toggleRecognition(camera.id)"
+            class="toggle-button"
+          >
+            {{ showRecognition[camera.id] ? 'AI Распознавание' : 'Обычный поток' }}
+          </el-button>
         </div>
-        <img
-          v-if="camera.isActive && streams[camera.id]"
-          :src="streams[camera.id]"
-          class="stream"
-          :alt="camera.name"
-        />
-        <p v-else class="muted small">Нет активного потока</p>
-      </article>
+        
+        <el-empty v-else description="Нет активного потока" :image-size="100" />
+      </el-card>
     </div>
   </div>
 </template>
 
 <style scoped>
-.page {
-  padding: 2rem;
+.page-container {
+  padding: 24px;
   max-width: 1400px;
   margin: 0 auto;
 }
 
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
+  margin-bottom: 24px;
 }
 
-.grid {
+.page-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.loading-container {
+  padding: 24px;
+}
+
+.cameras-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+}
+
+@media (max-width: 768px) {
+  .cameras-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .page-container {
+    padding: 16px;
+  }
+}
+
+.camera-card {
+  height: 100%;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
+  gap: 12px;
 }
 
-.muted {
-  color: var(--text-secondary);
+.camera-info {
+  flex: 1;
+  min-width: 0;
 }
 
-.muted.small {
-  font-size: 0.875rem;
+.camera-name {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.badge {
-  padding: 0.25rem 0.75rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
+.camera-location {
+  margin: 0;
+  font-size: 14px;
+  color: #909399;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.badge.success {
-  background: #d1fae5;
-  color: #065f46;
+.stream-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.badge.danger {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.stream {
+.stream-image {
   width: 100%;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  border: 1px solid #dcdfe6;
+  background: #f5f7fa;
 }
 
-.loading {
-  text-align: center;
-  color: var(--text-secondary);
+.toggle-button {
+  width: 100%;
 }
 </style>
-
-
-

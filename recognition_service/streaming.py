@@ -85,3 +85,4 @@ def generate_mjpeg_frames() -> Generator[bytes, None, None]:
 
 
 
+

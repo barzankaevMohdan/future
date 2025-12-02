@@ -43,3 +43,4 @@ export async function getPresence(companyId: number): Promise<PresenceStatus[]> 
 
 
 
+

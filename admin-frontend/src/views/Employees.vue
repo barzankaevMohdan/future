@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { Plus, Delete, User, Upload } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import type { UploadFile } from 'element-plus'
 import apiClient from '@/api/client'
 
 interface Employee {
@@ -11,7 +14,7 @@ interface Employee {
 
 const employees = ref<Employee[]>([])
 const loading = ref(true)
-const showForm = ref(false)
+const dialogVisible = ref(false)
 
 const form = ref({
   name: '',
@@ -19,16 +22,19 @@ const form = ref({
   photo: null as File | null,
 })
 
+const fileList = ref<UploadFile[]>([])
+
 onMounted(async () => {
   await loadEmployees()
 })
 
 async function loadEmployees() {
+  loading.value = true
   try {
     const response = await apiClient.get('/api/employees')
     employees.value = response.data
   } catch (error) {
-    console.error('Failed to load employees:', error)
+    ElMessage.error('Не удалось загрузить сотрудников')
   } finally {
     loading.value = false
   }
@@ -49,162 +55,156 @@ async function handleSubmit() {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
 
-    showForm.value = false
+    ElMessage.success('Сотрудник успешно добавлен')
+    dialogVisible.value = false
     form.value = { name: '', roleTitle: '', photo: null }
+    fileList.value = []
     await loadEmployees()
   } catch (error: any) {
-    alert(error.response?.data?.error || 'Failed to create employee')
+    ElMessage.error(error.response?.data?.error || 'Не удалось создать сотрудника')
   }
 }
 
-function handleFileChange(event: Event) {
-  const target = event.target as HTMLInputElement
-  if (target.files && target.files[0]) {
-    form.value.photo = target.files[0]
+function handleFileChange(file: UploadFile) {
+  if (file.raw) {
+    form.value.photo = file.raw
   }
+  return false
+}
+
+function handleRemove() {
+  form.value.photo = null
 }
 
 async function deleteEmployee(id: number) {
-  if (!confirm('Delete this employee?')) return
-
   try {
+    await ElMessageBox.confirm('Вы уверены, что хотите удалить этого сотрудника?', 'Подтверждение', {
+      confirmButtonText: 'Удалить',
+      cancelButtonText: 'Отмена',
+      type: 'warning',
+    })
+
     await apiClient.delete(`/api/employees/${id}`)
+    ElMessage.success('Сотрудник удален')
     await loadEmployees()
-  } catch (error) {
-    alert('Failed to delete employee')
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('Не удалось удалить сотрудника')
+    }
   }
 }
 </script>
 
 <template>
-  <div class="page">
-    <header class="page-header">
-      <h1>Employees</h1>
-      <button @click="showForm = !showForm" class="primary">
-        {{ showForm ? 'Cancel' : '+ Add Employee' }}
-      </button>
-    </header>
+  <div class="page-container">
+    <el-page-header class="page-header">
+      <template #content>
+        <h1 class="page-title">Сотрудники</h1>
+      </template>
+      <template #extra>
+        <el-button type="primary" :icon="Plus" @click="dialogVisible = true">
+          Добавить сотрудника
+        </el-button>
+      </template>
+    </el-page-header>
 
-    <div v-if="showForm" class="card form-card">
-      <h2>Add Employee</h2>
-      <form @submit.prevent="handleSubmit">
-        <div class="form-group">
-          <label>Name *</label>
-          <input v-model="form.name" required />
-        </div>
+    <el-card shadow="never">
+      <el-table :data="employees" v-loading="loading" style="width: 100%">
+        <el-table-column prop="id" label="ID" width="80" />
+        
+        <el-table-column label="Фото" width="100">
+          <template #default="{ row }">
+            <el-avatar :src="row.photoUrl" :size="60">
+              <el-icon :size="30"><User /></el-icon>
+            </el-avatar>
+          </template>
+        </el-table-column>
+        
+        <el-table-column prop="name" label="Имя" min-width="180" />
+        
+        <el-table-column label="Должность" min-width="150">
+          <template #default="{ row }">
+            {{ row.role || '—' }}
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="Действия" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              type="danger"
+              :icon="Delete"
+              @click="deleteEmployee(row.id)"
+            >
+              Удалить
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
 
-        <div class="form-group">
-          <label>Role</label>
-          <input v-model="form.roleTitle" placeholder="Manager, Staff, etc." />
-        </div>
+    <el-dialog
+      v-model="dialogVisible"
+      title="Добавить сотрудника"
+      width="500px"
+    >
+      <el-form :model="form" label-width="120px">
+        <el-form-item label="Имя" required>
+          <el-input v-model="form.name" placeholder="Иван Иванов" />
+        </el-form-item>
 
-        <div class="form-group">
-          <label>Photo</label>
-          <input type="file" accept="image/*" @change="handleFileChange" />
-        </div>
+        <el-form-item label="Должность">
+          <el-input v-model="form.roleTitle" placeholder="Менеджер" />
+        </el-form-item>
 
-        <button type="submit" class="primary">Create Employee</button>
-      </form>
-    </div>
+        <el-form-item label="Фото">
+          <el-upload
+            v-model:file-list="fileList"
+            :auto-upload="false"
+            :limit="1"
+            accept="image/*"
+            :on-change="handleFileChange"
+            :on-remove="handleRemove"
+          >
+            <el-button :icon="Upload">Выбрать файл</el-button>
+            <template #tip>
+              <div style="font-size: 12px; color: #909399; margin-top: 8px;">
+                JPG, PNG до 10MB
+              </div>
+            </template>
+          </el-upload>
+        </el-form-item>
+      </el-form>
 
-    <div v-if="loading" class="loading">Loading...</div>
-
-    <div v-else class="card">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Photo</th>
-            <th>Name</th>
-            <th>Role</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="emp in employees" :key="emp.id">
-            <td>{{ emp.id }}</td>
-            <td>
-              <img
-                v-if="emp.photoUrl"
-                :src="emp.photoUrl"
-                class="employee-photo"
-                alt="Photo"
-              />
-              <span v-else class="no-photo">No photo</span>
-            </td>
-            <td>{{ emp.name }}</td>
-            <td>{{ emp.role || '-' }}</td>
-            <td>
-              <button @click="deleteEmployee(emp.id)" class="danger small">
-                Delete
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      <template #footer>
+        <el-button @click="dialogVisible = false">Отмена</el-button>
+        <el-button type="primary" @click="handleSubmit">Создать</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.page {
-  padding: 2rem;
-  max-width: 1200px;
+.page-container {
+  padding: 24px;
+  max-width: 1400px;
   margin: 0 auto;
 }
 
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
+  margin-bottom: 24px;
 }
 
-.form-card {
-  margin-bottom: 2rem;
+.page-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #303133;
 }
 
-.form-group {
-  margin-bottom: 1rem;
-}
-
-label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-}
-
-input {
-  width: 100%;
-}
-
-.employee-photo {
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.no-photo {
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-}
-
-button.small {
-  padding: 0.25rem 0.75rem;
-  font-size: 0.75rem;
-}
-
-.loading {
-  text-align: center;
-  padding: 2rem;
-  color: var(--text-secondary);
+@media (max-width: 768px) {
+  .page-container {
+    padding: 16px;
+  }
 }
 </style>
-
-
-
-
-
-
-
