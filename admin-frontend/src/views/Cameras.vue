@@ -274,7 +274,7 @@ async function testConnection(id: number) {
               >
                 AI
               </el-button>
-              <el-button
+              <!-- <el-button
                 size="small"
                 :icon="Connection"
                 :loading="testingCamera === row.id"
@@ -287,7 +287,7 @@ async function testConnection(id: number) {
                 @click="toggleCamera(row.id, row.isActive)"
               >
                 {{ row.isActive ? 'Выкл' : 'Вкл' }}
-              </el-button>
+              </el-button> -->
               <el-button
                 size="small"
                 type="danger"
