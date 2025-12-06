@@ -3,10 +3,10 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-package-lock.json
 
 # Python
 venv/
+.venv/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -52,5 +52,12 @@ dist/
 # OS
 Thumbs.db
 
-*.md
+# Docker
+docker-compose.windows.tmp
+backups/
+*.tmp
 
+# Keep docker files
+!Dockerfile*
+!docker-compose*.yml
+!.dockerignore
