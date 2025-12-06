@@ -7,59 +7,85 @@ Thread-safe frame access using locks.
 
 import threading
 import time
-from typing import Optional, Generator
+from dataclasses import dataclass, field
+from typing import Optional, Generator, Dict
 import numpy as np
 import cv2
 
 
-# Global state
-_current_frame: Optional[np.ndarray] = None
-_frame_lock = threading.Lock()
+DEFAULT_STREAM_ID = "default"
 
 
-def set_frame(frame: np.ndarray) -> None:
+@dataclass
+class _StreamState:
+    frame: Optional[np.ndarray] = None
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+_streams: Dict[str, _StreamState] = {}
+_streams_lock = threading.Lock()
+
+
+def _get_stream_state(stream_id: str) -> _StreamState:
     """
-    Update current frame (thread-safe).
+    Return/create stream state for given identifier.
+    """
+    state = _streams.get(stream_id)
+    if state is None:
+        with _streams_lock:
+            state = _streams.get(stream_id)
+            if state is None:
+                state = _StreamState()
+                _streams[stream_id] = state
+    return state
+
+
+def set_frame(frame: np.ndarray, stream_id: str = DEFAULT_STREAM_ID) -> None:
+    """
+    Update current frame for a specific stream (thread-safe).
     
     Args:
         frame: New frame to set
+        stream_id: Identifier of the stream (camera/service)
     """
-    global _current_frame
-    with _frame_lock:
-        _current_frame = frame.copy() if frame is not None else None
+    state = _get_stream_state(stream_id)
+    with state.lock:
+        state.frame = frame.copy() if frame is not None else None
 
 
-def get_frame_copy() -> Optional[np.ndarray]:
+def get_frame_copy(stream_id: str = DEFAULT_STREAM_ID) -> Optional[np.ndarray]:
     """
-    Get a copy of current frame (thread-safe).
+    Get a copy of current frame for specific stream (thread-safe).
     
     Returns:
         Copy of current frame or None
     """
-    with _frame_lock:
-        return _current_frame.copy() if _current_frame is not None else None
+    state = _get_stream_state(stream_id)
+    with state.lock:
+        return state.frame.copy() if state.frame is not None else None
 
 
-def is_streaming() -> bool:
+def is_streaming(stream_id: str = DEFAULT_STREAM_ID) -> bool:
     """
-    Check if streaming is active.
+    Check if streaming is active for a stream.
     
     Returns:
         True if current frame exists
     """
-    with _frame_lock:
-        return _current_frame is not None
+    state = _get_stream_state(stream_id)
+    with state.lock:
+        return state.frame is not None
 
 
-def generate_mjpeg_frames() -> Generator[bytes, None, None]:
+def generate_mjpeg_frames(stream_id: str = DEFAULT_STREAM_ID) -> Generator[bytes, None, None]:
     """
-    Generate MJPEG frames for Flask streaming.
+    Generate MJPEG frames for a specific stream.
     
     Yields:
         JPEG frame bytes with multipart headers
     """
     while True:
-        frame = get_frame_copy()
+        frame = get_frame_copy(stream_id)
         
         if frame is None:
             time.sleep(0.1)
