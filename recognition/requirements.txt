@@ -1,9 +1,0 @@
-opencv-python
-face_recognition
-requests
-flask
-flask-cors
-insightface
-onnxruntime
-insightface
-onnxruntime
