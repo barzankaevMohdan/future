@@ -53,6 +53,8 @@ def run(face_app: Any, config: Config, stop_flag: threading.Event = None) -> Non
         config: Service configuration
         stop_flag: Optional threading.Event to signal graceful shutdown
     """
+    stream_id = config.camera_id or config.service_name or 'default'
+    
     # Load employees
     known_embeddings, known_ids = load_employees_from_backend(config, face_app)
     
@@ -130,7 +132,7 @@ def run(face_app: Any, config: Config, stop_flag: threading.Event = None) -> Non
             
             # Process only every N-th frame
             if frame_count % config.frame_skip != 0:
-                set_frame(frame)
+                set_frame(frame, stream_id=stream_id)
                 continue
             
             # Detect faces
@@ -162,7 +164,7 @@ def run(face_app: Any, config: Config, stop_flag: threading.Event = None) -> Non
             )
             
             # Update streaming frame
-            set_frame(display_frame)
+            set_frame(display_frame, stream_id=stream_id)
             
             # Small delay
             time.sleep(0.05)

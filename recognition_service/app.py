@@ -27,12 +27,13 @@ def create_app(config: Config) -> Flask:
     """
     app = Flask(__name__)
     CORS(app)
+    stream_id = config.camera_id or config.service_name or 'default'
     
     @app.route('/video_feed')
     def video_feed():
         """Stream MJPEG video feed."""
         return Response(
-            streaming.generate_mjpeg_frames(),
+            streaming.generate_mjpeg_frames(stream_id=stream_id),
             mimetype='multipart/x-mixed-replace; boundary=frame'
         )
     
@@ -41,7 +42,7 @@ def create_app(config: Config) -> Flask:
         """Health check endpoint."""
         return jsonify({
             'status': 'ok',
-            'streaming': streaming.is_streaming(),
+            'streaming': streaming.is_streaming(stream_id=stream_id),
             'cameraId': config.camera_id,
             'service': config.service_name,
         })
